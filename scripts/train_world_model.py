@@ -569,6 +569,8 @@ def main() -> None:
     parser.add_argument("--residual-baseline", choices=["none", "no_change", "mean_shift", "ridge"], default="none")
     parser.add_argument("--residual-alpha-grid", type=str, default="0;0.25;0.5;0.75;1.0")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--pair-val-frac", type=float, default=0.0, help="Fraction of train pairs to hold out for alpha tuning when val split is empty.")
+    parser.add_argument("--pair-val-seed", type=int, default=0)
     parser.add_argument("--bootstrap-samples", type=int, default=1000)
     parser.add_argument("--bootstrap-seed", type=int, default=0)
     parser.add_argument("--ridge-alphas", type=str, default="0.1,1.0,10.0,100.0")
@@ -736,6 +738,12 @@ def main() -> None:
 
         tune_pairs = val_pairs if val_pairs else train_pairs
         tuned_on = "val" if val_pairs else "train"
+        if not val_pairs and args.pair_val_frac > 0:
+            rng = np.random.default_rng(args.pair_val_seed)
+            n_val = max(1, int(len(train_pairs) * args.pair_val_frac))
+            idx = rng.choice(len(train_pairs), size=n_val, replace=False)
+            tune_pairs = [train_pairs[i] for i in idx]
+            tuned_on = "pair_val"
         best_alpha = None
         best_val = float("inf")
         val_scores = {}
@@ -762,6 +770,9 @@ def main() -> None:
             best_val = float("nan")
         metrics["residual"]["alpha"] = best_alpha
         metrics["residual"]["alpha_tuned_on"] = tuned_on
+        if tuned_on == "pair_val":
+            metrics["residual"]["pair_val_frac"] = args.pair_val_frac
+            metrics["residual"]["pair_val_seed"] = args.pair_val_seed
         metrics["residual"]["val_edist"] = best_val
         metrics["residual"]["val_scores"] = val_scores
 

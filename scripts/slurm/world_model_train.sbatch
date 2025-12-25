@@ -27,8 +27,11 @@ RESIDUAL=${RESIDUAL:-}
 RESIDUAL_BASELINE=${RESIDUAL_BASELINE:-none}
 RESIDUAL_ALPHA_GRID=${RESIDUAL_ALPHA_GRID:-0;0.25;0.5;0.75;1.0}
 SEED=${SEED:-0}
+PAIR_VAL_FRAC=${PAIR_VAL_FRAC:-0}
+PAIR_VAL_SEED=${PAIR_VAL_SEED:-0}
 EVAL_BASELINES=${EVAL_BASELINES:-}
 RIDGE_ALPHAS=${RIDGE_ALPHAS:-0.1,1.0,10.0,100.0}
+ACTION_EMBEDDINGS=${ACTION_EMBEDDINGS:-}
 ACTION_EMBEDDINGS=${ACTION_EMBEDDINGS:-}
 
 cd /gpfs/commons/home/jameslee/CellJEPA
@@ -48,6 +51,8 @@ CMD=(python3 scripts/train_world_model.py \
   --max-cells-per-group "$MAX_CELLS_PER_GROUP" \
   --hidden-dim "$HIDDEN_DIM" \
   --seed "$SEED" \
+  --pair-val-frac "$PAIR_VAL_FRAC" \
+  --pair-val-seed "$PAIR_VAL_SEED" \
   --ridge-alphas "$RIDGE_ALPHAS" \
   --residual-baseline "$RESIDUAL_BASELINE" \
   --residual-alpha-grid "$RESIDUAL_ALPHA_GRID")
@@ -62,6 +67,10 @@ fi
 
 if [ -n "$EVAL_BASELINES" ]; then
   CMD+=(--eval-baselines)
+fi
+
+if [ -n "$ACTION_EMBEDDINGS" ]; then
+  CMD+=(--action-embeddings "$ACTION_EMBEDDINGS")
 fi
 
 if [ -n "$ACTION_EMBEDDINGS" ]; then
