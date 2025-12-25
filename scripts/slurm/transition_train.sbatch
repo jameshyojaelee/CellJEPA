@@ -23,12 +23,15 @@ EVAL_RESAMPLES=${EVAL_RESAMPLES:-5}
 BOOTSTRAP_SAMPLES=${BOOTSTRAP_SAMPLES:-1000}
 BOOTSTRAP_SEED=${BOOTSTRAP_SEED:-0}
 MAX_CELLS_PER_GROUP=${MAX_CELLS_PER_GROUP:-5000}
+MIN_CELLS_PER_CONDITION=${MIN_CELLS_PER_CONDITION:-30}
 MAX_PAIRS=${MAX_PAIRS:-}
 EMBED_DIM=${EMBED_DIM:-256}
 HIDDEN_DIM=${HIDDEN_DIM:-512}
 SEED=${SEED:-0}
 EVAL_BASELINES=${EVAL_BASELINES:-}
 RIDGE_ALPHAS=${RIDGE_ALPHAS:-0.1,1.0,10.0,100.0}
+RESIDUAL_BASELINE=${RESIDUAL_BASELINE:-none}
+RESIDUAL_ALPHA_GRID=${RESIDUAL_ALPHA_GRID:-0,0.25,0.5,0.75,1.0}
 
 cd /gpfs/commons/home/jameslee/CellJEPA
 export PYTHONUNBUFFERED=1
@@ -46,10 +49,13 @@ CMD=(python3 scripts/train_transition.py \
   --bootstrap-samples "$BOOTSTRAP_SAMPLES" \
   --bootstrap-seed "$BOOTSTRAP_SEED" \
   --max-cells-per-group "$MAX_CELLS_PER_GROUP" \
+  --min-cells-per-condition "$MIN_CELLS_PER_CONDITION" \
   --embed-dim "$EMBED_DIM" \
   --hidden-dim "$HIDDEN_DIM" \
   --seed "$SEED" \
-  --ridge-alphas "$RIDGE_ALPHAS")
+  --ridge-alphas "$RIDGE_ALPHAS" \
+  --residual-baseline "$RESIDUAL_BASELINE" \
+  --residual-alpha-grid "$RESIDUAL_ALPHA_GRID")
 
 if [ -n "$EVAL_SAMPLE_SIZE" ]; then
   CMD+=(--eval-sample-size "$EVAL_SAMPLE_SIZE")

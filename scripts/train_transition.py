@@ -49,7 +49,12 @@ def embed_cells(adata, checkpoint_path: Path, indices: np.ndarray, batch_size: i
     return out
 
 
-def build_pairs(adata, max_cells_per_group: int | None = None, seed: int = 0):
+def build_pairs(
+    adata,
+    max_cells_per_group: int | None = None,
+    min_cells_per_condition: int | None = None,
+    seed: int = 0,
+):
     rng = np.random.default_rng(seed)
     obs = adata.obs
     control_groups = {}
@@ -61,9 +66,15 @@ def build_pairs(adata, max_cells_per_group: int | None = None, seed: int = 0):
 
     pairs_set = []
     for (context_id, perturbation_id), p_idx in pert_groups.items():
+        pid_str = str(perturbation_id).strip().lower()
+        if pid_str in {"nan", "none", ""}:
+            continue
         c_idx = control_groups.get(context_id)
         if c_idx is None or p_idx.size == 0:
             continue
+        if min_cells_per_condition:
+            if c_idx.size < min_cells_per_condition or p_idx.size < min_cells_per_condition:
+                continue
         if max_cells_per_group:
             if c_idx.size > max_cells_per_group:
                 c_idx = rng.choice(c_idx, size=max_cells_per_group, replace=False)
@@ -389,6 +400,139 @@ def evaluate_set_baselines(
     return results
 
 
+def build_baseline_shift_map(
+    baseline: str,
+    train_proto: list[PairProto],
+    val_proto: list[PairProto],
+    all_proto: list[PairProto],
+    ridge_alphas: list[float],
+) -> tuple[dict[tuple[str, str], np.ndarray], dict]:
+    if baseline == "none":
+        return {}, {}
+
+    meta: dict = {}
+    if baseline == "no_change":
+        shift_map = {(p.context_id, p.perturbation_id): np.zeros_like(p.control_proto) for p in all_proto}
+        return shift_map, meta
+
+    if not train_proto:
+        raise ValueError("No training pairs available for baseline residual.")
+
+    if baseline == "mean_shift":
+        shift_by_pert = _mean_shift_by_pert(train_proto)
+        shift_map = {}
+        for p in all_proto:
+            shift = shift_by_pert.get(p.perturbation_id)
+            if shift is None:
+                shift = np.zeros_like(p.control_proto)
+            shift_map[(p.context_id, p.perturbation_id)] = shift
+        return shift_map, meta
+
+    if baseline == "ridge":
+        ridge_W, ridge_alpha = _fit_ridge_proto(train_proto, val_proto, ridge_alphas)
+        meta["ridge_alpha"] = ridge_alpha
+        shift_map = {}
+        for p in all_proto:
+            pred = _ridge_predict(p.control_proto[None, :], ridge_W)[0]
+            shift_map[(p.context_id, p.perturbation_id)] = pred - p.control_proto
+        return shift_map, meta
+
+    raise ValueError(f"Unknown residual baseline: {baseline}")
+
+
+def train_set_residual(
+    model: SetPredictor,
+    optimizer: torch.optim.Optimizer,
+    pairs: list[PairSet],
+    embeddings: np.ndarray,
+    pert_to_idx: dict[str, int],
+    baseline_shift_map: dict[tuple[str, str], np.ndarray],
+    device: str,
+    epochs: int,
+    sample_size: int,
+    seed: int,
+) -> dict:
+    model.train()
+    losses = []
+    skipped = 0
+    rng = np.random.default_rng(seed)
+
+    for epoch in range(epochs):
+        rng.shuffle(pairs)
+        for pair in pairs:
+            shift = baseline_shift_map.get((pair.context_id, pair.perturbation_id))
+            if shift is None:
+                skipped += 1
+                continue
+            c_idx = pair.control_indices
+            p_idx = pair.pert_indices
+            if c_idx.size == 0 or p_idx.size == 0:
+                skipped += 1
+                continue
+            c_sel = rng.choice(c_idx, size=min(sample_size, c_idx.size), replace=False)
+            p_sel = rng.choice(p_idx, size=min(sample_size, p_idx.size), replace=False)
+
+            c = torch.tensor(embeddings[c_sel], dtype=torch.float32, device=device)
+            y = torch.tensor(embeddings[p_sel], dtype=torch.float32, device=device)
+            idx = torch.tensor([pert_to_idx.get(pair.perturbation_id, 0)], device=device, dtype=torch.long)
+            shift_t = torch.tensor(shift, dtype=torch.float32, device=device)
+            pred = c + shift_t
+            pred = pred + model(c, idx)
+            loss = energy_distance_torch(pred, y)
+
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+
+    return {"loss": float(np.mean(losses)) if losses else float("nan"), "skipped_train": skipped}
+
+
+def _compute_residual_edists(
+    model: SetPredictor,
+    pairs: list[PairSet],
+    embeddings: np.ndarray,
+    pert_to_idx: dict[str, int],
+    baseline_shift_map: dict[tuple[str, str], np.ndarray],
+    device: str,
+    sample_size: int,
+    resamples: int,
+    seed: int,
+    alpha: float,
+) -> tuple[list[float], int]:
+    rng = np.random.default_rng(seed)
+    per_pair: list[float] = []
+    skipped = 0
+    model.eval()
+    for p in pairs:
+        shift = baseline_shift_map.get((p.context_id, p.perturbation_id))
+        if shift is None:
+            skipped += 1
+            continue
+        idx = torch.tensor([pert_to_idx.get(p.perturbation_id, 0)], device=device, dtype=torch.long)
+        shift_t = torch.tensor(shift, dtype=torch.float32, device=device)
+
+        def pred_fn(c):
+            with torch.no_grad():
+                return c + shift_t + alpha * model(c, idx)
+
+        edists = _resampled_edist(
+            p.control_indices,
+            p.pert_indices,
+            embeddings,
+            rng,
+            sample_size,
+            resamples,
+            device,
+            pred_fn,
+        )
+        if not edists:
+            skipped += 1
+            continue
+        per_pair.append(float(np.mean(edists)))
+    return per_pair, skipped
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train transition predictors (prototype or set).")
     parser.add_argument("--dataset", required=True)
@@ -402,6 +546,7 @@ def main() -> None:
     parser.add_argument("--eval-sample-size", type=int, default=None)
     parser.add_argument("--eval-resamples", type=int, default=5)
     parser.add_argument("--max-cells-per-group", type=int, default=5000)
+    parser.add_argument("--min-cells-per-condition", type=int, default=30)
     parser.add_argument("--max-pairs", type=int, default=None, help="Optional cap on number of condition pairs.")
     parser.add_argument("--embed-dim", type=int, default=256)
     parser.add_argument("--hidden-dim", type=int, default=512)
@@ -410,6 +555,8 @@ def main() -> None:
     parser.add_argument("--bootstrap-seed", type=int, default=0)
     parser.add_argument("--eval-baselines", action="store_true", help="Compute set-level baseline E-distance metrics.")
     parser.add_argument("--ridge-alphas", type=str, default="0.1,1.0,10.0,100.0")
+    parser.add_argument("--residual-baseline", choices=["none", "no_change", "mean_shift", "ridge"], default="none")
+    parser.add_argument("--residual-alpha-grid", type=str, default="0,0.25,0.5,0.75,1.0")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -422,6 +569,7 @@ def main() -> None:
 
     eval_sample_size = args.eval_sample_size or args.sample_size
     ridge_alphas = [float(x) for x in args.ridge_alphas.split(",") if x]
+    residual_alpha_grid = [float(x) for x in args.residual_alpha_grid.split(",") if x]
 
     adata = ad.read_h5ad(args.dataset)
     split = json.loads(Path(args.split).read_text())
@@ -429,7 +577,12 @@ def main() -> None:
     dataset_id = split.get("dataset_id") or adata.uns.get("dataset_id") or Path(args.dataset).stem
     split_name = split.get("split_name") or Path(args.split).stem
 
-    pairs_set = build_pairs(adata, max_cells_per_group=args.max_cells_per_group, seed=args.seed)
+    pairs_set = build_pairs(
+        adata,
+        max_cells_per_group=args.max_cells_per_group,
+        min_cells_per_condition=args.min_cells_per_condition,
+        seed=args.seed,
+    )
     if args.max_pairs and len(pairs_set) > args.max_pairs:
         rng = np.random.default_rng(args.seed)
         pairs_set = list(rng.choice(pairs_set, size=args.max_pairs, replace=False))
@@ -457,6 +610,10 @@ def main() -> None:
         if c_idx.size == 0 or t_idx.size == 0:
             dropped_nonfinite += 1
             continue
+        if args.min_cells_per_condition:
+            if c_idx.size < args.min_cells_per_condition or t_idx.size < args.min_cells_per_condition:
+                dropped_nonfinite += 1
+                continue
         p.control_indices = c_idx
         p.pert_indices = t_idx
         filtered_pairs.append(p)
@@ -489,6 +646,7 @@ def main() -> None:
         "split_name": split_name,
         "group_key": group_key,
         "seed": args.seed,
+        "min_cells_per_condition": args.min_cells_per_condition,
         "n_train": len(train_pairs),
         "n_val": len(val_pairs),
         "n_test": len(test_pairs),
@@ -505,6 +663,10 @@ def main() -> None:
             "resamples": args.eval_resamples,
             "bootstrap_samples": args.bootstrap_samples,
             "bootstrap_seed": args.bootstrap_seed,
+        },
+        "residual_config": {
+            "baseline": args.residual_baseline,
+            "alpha_grid": residual_alpha_grid,
         },
         "jepa_config": jepa_cfg,
     }
@@ -530,31 +692,112 @@ def main() -> None:
     else:
         model = SetPredictor(cfg).to(device)
         opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-        metrics.update(
-            train_set(
+        if args.residual_baseline != "none":
+            all_proto = train_proto + val_proto + test_proto
+            baseline_shift_map, baseline_meta = build_baseline_shift_map(
+                args.residual_baseline,
+                train_proto,
+                val_proto,
+                all_proto,
+                ridge_alphas,
+            )
+            metrics["residual"] = {
+                "baseline": args.residual_baseline,
+                "alpha_grid": residual_alpha_grid,
+                **baseline_meta,
+            }
+            metrics.update(
+                train_set_residual(
+                    model,
+                    opt,
+                    train_pairs,
+                    embeddings,
+                    pert_to_idx,
+                    baseline_shift_map,
+                    device,
+                    epochs=args.epochs,
+                    sample_size=args.sample_size,
+                    seed=args.seed,
+                )
+            )
+            if val_pairs:
+                best_alpha = None
+                best_val = float("inf")
+                val_scores = {}
+                for alpha in residual_alpha_grid:
+                    vals, skipped = _compute_residual_edists(
+                        model,
+                        val_pairs,
+                        embeddings,
+                        pert_to_idx,
+                        baseline_shift_map,
+                        device,
+                        eval_sample_size,
+                        args.eval_resamples,
+                        args.seed + 13,
+                        alpha,
+                    )
+                    mean_val = float(np.mean(vals)) if vals else float("nan")
+                    val_scores[alpha] = mean_val
+                    if np.isfinite(mean_val) and mean_val < best_val:
+                        best_val = mean_val
+                        best_alpha = alpha
+                if best_alpha is None:
+                    best_alpha = 1.0
+                    best_val = float("nan")
+                metrics["residual"]["alpha"] = best_alpha
+                metrics["residual"]["val_edist"] = best_val
+                metrics["residual"]["val_scores"] = val_scores
+            else:
+                metrics["residual"]["alpha"] = 1.0
+
+            alpha = metrics["residual"]["alpha"]
+            per_pair, skipped = _compute_residual_edists(
                 model,
-                opt,
-                train_pairs,
+                test_pairs,
+                embeddings,
+                pert_to_idx,
+                baseline_shift_map,
+                device,
+                eval_sample_size,
+                args.eval_resamples,
+                args.seed + 17,
+                alpha,
+            )
+            edist_mean, edist_ci, n_eval = _summarize(per_pair, args.bootstrap_samples, args.bootstrap_seed)
+            metrics["test"] = {
+                "edist_mean": edist_mean,
+                "edist_ci95": edist_ci,
+                "skipped_pairs": skipped,
+                "n_eval": n_eval,
+            }
+        else:
+            metrics.update(
+                train_set(
+                    model,
+                    opt,
+                    train_pairs,
+                    embeddings,
+                    pert_to_idx,
+                    device,
+                    epochs=args.epochs,
+                    sample_size=args.sample_size,
+                    seed=args.seed,
+                )
+            )
+            metrics["test"] = eval_set_model(
+                model,
+                test_pairs,
                 embeddings,
                 pert_to_idx,
                 device,
-                epochs=args.epochs,
-                sample_size=args.sample_size,
-                seed=args.seed,
+                eval_sample_size,
+                args.eval_resamples,
+                args.seed,
+                args.bootstrap_samples,
+                args.bootstrap_seed,
             )
-        )
-        metrics["test"] = eval_set_model(
-            model,
-            test_pairs,
-            embeddings,
-            pert_to_idx,
-            device,
-            eval_sample_size,
-            args.eval_resamples,
-            args.seed,
-            args.bootstrap_samples,
-            args.bootstrap_seed,
-        )
+
         if args.eval_baselines:
             metrics["baselines"] = evaluate_set_baselines(
                 train_proto,

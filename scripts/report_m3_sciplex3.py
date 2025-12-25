@@ -100,6 +100,9 @@ def main() -> None:
         if mode == "set":
             test = metrics.get("test", {})
             model_edist = format_ci(test.get("edist_mean"), test.get("edist_ci95"))
+            residual = metrics.get("residual", {}) or {}
+            residual_base = residual.get("baseline", "")
+            residual_alpha = residual.get("alpha", "")
             baselines = metrics.get("baselines") or {}
             if not baselines:
                 missing_baselines += 1
@@ -116,6 +119,8 @@ def main() -> None:
                     str(n_eval if n_eval is not None else ""),
                     str(skipped if skipped is not None else ""),
                     model_edist,
+                    str(residual_base),
+                    str(residual_alpha),
                     format_ci(no_change.get("edist_mean"), no_change.get("edist_ci95")),
                     format_ci(mean_shift.get("edist_mean"), mean_shift.get("edist_ci95")),
                     format_ci(ridge.get("edist_mean"), ridge.get("edist_ci95")),
@@ -162,6 +167,8 @@ def main() -> None:
                 "n_eval",
                 "skipped",
                 "model_edist",
+                "residual_baseline",
+                "residual_alpha",
                 "no_change",
                 "mean_shift",
                 "ridge",

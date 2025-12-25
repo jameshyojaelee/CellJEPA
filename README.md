@@ -119,6 +119,7 @@ We treat negative results as informative, as long as they are well-controlled.
 See:
 - Project plan: `docs/plan.md`
 - Plan critique / risks: `docs/plan_critique.md`
+- M3 recovery strategy (headroom audit → acceptance target → world model pivot): `docs/m3_strategy.md`
 - HPC/Slurm notes: `docs/HPC.md`
 - Download manifests: `docs/downloads.md`
 
