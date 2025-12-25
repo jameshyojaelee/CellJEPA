@@ -21,10 +21,10 @@ ENV/
 # Project outputs
 runs/
 logs/
+configs/download/
 
 # Data (never commit raw/processed datasets)
 data/
-configs/download/
 
 AGENTS.md
 docs/*.pdf

@@ -27,9 +27,17 @@ def parse_cfg(cfg_path: Path):
             parts = shlex.split(line)
             if len(parts) >= 2:
                 current_out = parts[1]
+            if current_out and current_url:
+                entries.append((current_url, current_out))
+                current_out = None
+                current_url = None
             continue
         if line.startswith("output="):
             current_out = line.split("=", 1)[1].strip().strip('"')
+            if current_out and current_url:
+                entries.append((current_url, current_out))
+                current_out = None
+                current_url = None
             continue
 
         if line.startswith("--url"):
