@@ -24,6 +24,7 @@ logs/
 
 # Data (never commit raw/processed datasets)
 data/
+configs/download/
 
 AGENTS.md
 docs/*.pdf

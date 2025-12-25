@@ -40,6 +40,8 @@ def build_pairs(
     # Compute control prototypes per context
     for context_id, idx in obs[obs["is_control"]].groupby("context_id").indices.items():
         indices = np.array(idx)
+        if indices.size == 0:
+            continue
         if max_cells_per_group and indices.size > max_cells_per_group:
             indices = rng.choice(indices, size=max_cells_per_group, replace=False)
         control_proto[context_id] = _mean_vector(X[indices])
@@ -48,6 +50,8 @@ def build_pairs(
     pert_obs = obs[~obs["is_control"]]
     for (context_id, perturbation_id), idx in pert_obs.groupby(["context_id", "perturbation_id"]).indices.items():
         indices = np.array(idx)
+        if indices.size == 0:
+            continue
         if max_cells_per_group and indices.size > max_cells_per_group:
             indices = rng.choice(indices, size=max_cells_per_group, replace=False)
         pert_proto[(context_id, perturbation_id)] = _mean_vector(X[indices])
@@ -204,4 +208,3 @@ def evaluate_baselines(
         "n_pairs_val": len(val_pairs),
     }
     return results
-
