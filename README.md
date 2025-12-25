@@ -6,7 +6,7 @@ This repo is intentionally **benchmark-driven**: the goal is to make a credible 
 
 ---
 
-## Why this project matters
+## Why I started this project
 
 Predicting transcriptional responses to perturbations is a core problem in functional genomics and drug discovery.
 However, recent benchmarking work has highlighted a hard reality: in **gene perturbation effect prediction**, deep learning methods have **not yet consistently beaten deliberately simple linear baselines** on standard settings (especially once evaluation details are carefully controlled). See: *“Deep-learning-based gene perturbation effect prediction does not yet outperform simple linear baselines”* (Nature Methods, 2025): https://www.nature.com/articles/s41592-025-02772-6
@@ -15,9 +15,7 @@ CellJEPA is motivated by that gap:
 - not "bigger models",
 - but a **different training objective**: predict *latent state* rather than reconstructing noisy observations.
 
----
-
-## Core idea (JEPA in one paragraph)
+**Core idea (JEPA in one paragraph):**
 
 A JEPA trains an encoder to produce representations and a predictor to **predict the representation of masked targets from visible context**.
 In I-JEPA (vision), the model predicts representations of masked image blocks from a context block: https://arxiv.org/abs/2301.08243
@@ -97,11 +95,9 @@ v1 focuses on harmonized public perturbation datasets and multi-modal perturbati
 3. Extensive ablations (masking strategy, teacher/EMA, anti-collapse regularization, backbone choice)
 4. Benchmark report: where JEPA wins, where it fails, and why
 
-### Optional branches (later)
-- Branch 1: morphology integration (Cell Painting + perturbation signatures)
-- Branch 2: spatial perturbation context (predict spatially structured response)
-
-### Potential later validation layers (not in v1 core)
+### Optional branches for later
+- Morphology integration (Cell Painting + perturbation signatures)
+- Spatial perturbation context (predict spatially structured response)
 - GWAS: trait-enriched gene module masking and enrichment-based evaluation
 - Survival: outcome association as external validation of learned state axes
 
@@ -141,7 +137,7 @@ See:
 
 ---
 
-## References (starting points)
+## References
 
 - I-JEPA: https://arxiv.org/abs/2301.08243
 - sc-JEPA (paper + local): https://openreview.net/forum?id=MZDkttBUEd , `docs/sc-JEPA.pdf`
