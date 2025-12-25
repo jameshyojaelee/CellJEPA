@@ -30,6 +30,43 @@ def _to_dense(x):
     return np.asarray(x)
 
 
+def load_action_embeddings(path: Path) -> tuple[dict[str, np.ndarray], int]:
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict) or not data:
+        raise ValueError("Action embeddings JSON must be a non-empty mapping.")
+    action_map: dict[str, np.ndarray] = {}
+    dim = None
+    for key, value in data.items():
+        vec = np.asarray(value, dtype=np.float32)
+        if vec.ndim != 1:
+            raise ValueError(f"Action embedding for {key} must be a 1D vector.")
+        if dim is None:
+            dim = vec.shape[0]
+        elif vec.shape[0] != dim:
+            raise ValueError(f"Action embedding for {key} has dim {vec.shape[0]} != {dim}.")
+        action_map[str(key)] = vec
+    if dim is None:
+        raise ValueError("Action embeddings JSON had no vectors.")
+    return action_map, dim
+
+
+def apply_action_embeddings(
+    model: WorldModel,
+    pert_to_idx: dict[str, int],
+    action_map: dict[str, np.ndarray],
+) -> None:
+    weight = model.action_emb.emb.weight
+    with torch.no_grad():
+        weight[0].zero_()
+        for key, vec in action_map.items():
+            idx = pert_to_idx.get(key)
+            if idx is None:
+                continue
+            if vec.shape[0] != weight.shape[1]:
+                raise ValueError(f"Action embedding for {key} has dim {vec.shape[0]} != {weight.shape[1]}.")
+            weight[idx].copy_(torch.tensor(vec, dtype=weight.dtype, device=weight.device))
+
+
 def embed_cells(adata, checkpoint_path: Path, indices: np.ndarray, batch_size: int = 512, device: str = "cpu"):
     ckpt = torch.load(checkpoint_path, map_location=device)
     cfg = JepaConfig(**ckpt["config"])
@@ -530,12 +567,13 @@ def main() -> None:
     parser.add_argument("--hidden-dim", type=int, default=512)
     parser.add_argument("--residual", action="store_true")
     parser.add_argument("--residual-baseline", choices=["none", "no_change", "mean_shift", "ridge"], default="none")
-    parser.add_argument("--residual-alpha-grid", type=str, default="0,0.25,0.5,0.75,1.0")
+    parser.add_argument("--residual-alpha-grid", type=str, default="0;0.25;0.5;0.75;1.0")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--bootstrap-samples", type=int, default=1000)
     parser.add_argument("--bootstrap-seed", type=int, default=0)
     parser.add_argument("--ridge-alphas", type=str, default="0.1,1.0,10.0,100.0")
     parser.add_argument("--eval-baselines", action="store_true")
+    parser.add_argument("--action-embeddings", type=str, default=None)
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -548,7 +586,9 @@ def main() -> None:
 
     eval_sample_size = args.eval_sample_size or args.sample_size
     ridge_alphas = [float(x) for x in args.ridge_alphas.split(",") if x]
-    residual_alpha_grid = [float(x) for x in args.residual_alpha_grid.split(",") if x]
+    grid_raw = args.residual_alpha_grid
+    sep = ";" if ";" in grid_raw else ","
+    residual_alpha_grid = [float(x) for x in grid_raw.split(sep) if x]
 
     adata = ad.read_h5ad(args.dataset)
     split = json.loads(Path(args.split).read_text())
@@ -567,9 +607,22 @@ def main() -> None:
 
     # Build perturbation vocab from train only
     train_perturbations = sorted({p.perturbation_id for p in train_pairs})
-    pert_to_idx = {"<UNK>": 0}
-    for i, p in enumerate(train_perturbations, 1):
-        pert_to_idx[p] = i
+    action_map = None
+    action_dim = None
+    missing_train = []
+    if args.action_embeddings:
+        action_map, action_dim = load_action_embeddings(Path(args.action_embeddings))
+        pert_to_idx = {"<UNK>": 0}
+        for key in sorted(action_map.keys()):
+            pert_to_idx[key] = len(pert_to_idx)
+        for p in train_perturbations:
+            if p not in pert_to_idx:
+                pert_to_idx[p] = len(pert_to_idx)
+                missing_train.append(p)
+    else:
+        pert_to_idx = {"<UNK>": 0}
+        for i, p in enumerate(train_perturbations, 1):
+            pert_to_idx[p] = i
 
     indices = np.unique(np.concatenate([p.control_indices for p in pairs] + [p.pert_indices for p in pairs]))
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -609,9 +662,12 @@ def main() -> None:
         action_vocab=len(pert_to_idx),
         hidden_dim=args.hidden_dim,
         residual=residual_mode,
+        action_dim=action_dim,
     )
 
     model = WorldModel(cfg).to(device)
+    if action_map is not None:
+        apply_action_embeddings(model, pert_to_idx, action_map)
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
     metrics = {
@@ -640,6 +696,13 @@ def main() -> None:
         "world_model_config": cfg.__dict__,
         "jepa_config": jepa_cfg,
     }
+    if action_map is not None:
+        metrics["action_embeddings"] = {
+            "path": args.action_embeddings,
+            "action_dim": action_dim,
+            "n_embeddings": len(action_map),
+            "missing_train": len(missing_train),
+        }
 
     if args.residual_baseline != "none":
         all_pairs = train_pairs + val_pairs + test_pairs

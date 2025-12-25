@@ -14,6 +14,7 @@ class WorldModelConfig:
     hidden_dim: int = 512
     context_dim: int | None = None
     residual: bool = True
+    action_dim: int | None = None
 
 
 class ActionEmbedding(nn.Module):
@@ -32,14 +33,15 @@ class WorldModel(nn.Module):
         super().__init__()
         context_dim = cfg.context_dim or cfg.embed_dim
         self.cfg = cfg
-        self.action_emb = ActionEmbedding(cfg.action_vocab, cfg.embed_dim)
+        action_dim = cfg.action_dim or cfg.embed_dim
+        self.action_emb = ActionEmbedding(cfg.action_vocab, action_dim)
         self.context_net = nn.Sequential(
             nn.Linear(cfg.embed_dim, cfg.hidden_dim),
             nn.GELU(),
             nn.Linear(cfg.hidden_dim, context_dim),
         )
         self.cell_net = nn.Sequential(
-            nn.Linear(cfg.embed_dim + context_dim + cfg.embed_dim, cfg.hidden_dim),
+            nn.Linear(cfg.embed_dim + context_dim + action_dim, cfg.hidden_dim),
             nn.GELU(),
             nn.Linear(cfg.hidden_dim, cfg.embed_dim),
         )
