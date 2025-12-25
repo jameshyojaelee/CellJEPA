@@ -11,6 +11,8 @@ set -euo pipefail
 
 DATASET=${DATASET:?Set DATASET to processed .h5ad path}
 OUT=${OUT:?Set OUT to run output directory}
+SPLIT=${SPLIT:-}
+SPLIT_SCOPE=${SPLIT_SCOPE:-train}
 
 EPOCHS=${EPOCHS:-10}
 BATCH_SIZE=${BATCH_SIZE:-256}
@@ -47,6 +49,10 @@ CMD=(python3 scripts/train_jepa.py \
   --covariance-weight "$COVARIANCE_WEIGHT" \
   --seed "$SEED" \
   --max-cells "$MAX_CELLS")
+
+if [ -n "$SPLIT" ]; then
+  CMD+=(--split "$SPLIT" --split-scope "$SPLIT_SCOPE")
+fi
 
 if [ -n "$MODULE_MASK_PATH" ]; then
   CMD+=(--module-mask-path "$MODULE_MASK_PATH")

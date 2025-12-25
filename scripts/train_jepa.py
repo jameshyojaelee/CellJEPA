@@ -37,6 +37,24 @@ def _sample_rows(X, n: int, seed: int = 0):
     return X[idx]
 
 
+def _filter_by_split(adata: ad.AnnData, split_path: Path, scope: str) -> ad.AnnData:
+    split = json.loads(split_path.read_text())
+    group_key = split["group_key"]
+    scope = scope.lower()
+    if scope == "train":
+        groups = split["train_groups"]
+    elif scope == "trainval":
+        groups = list(split["train_groups"]) + list(split["val_groups"])
+    elif scope == "all":
+        return adata
+    else:
+        raise ValueError(f"Unknown split scope: {scope}")
+
+    groups = set(map(str, groups))
+    mask = adata.obs[group_key].astype(str).isin(groups).values
+    return adata[mask].copy()
+
+
 def load_module_masks(path: Path, gene_names: list[str]) -> list[np.ndarray]:
     data = json.loads(path.read_text())
     if isinstance(data, dict):
@@ -78,6 +96,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--fast-dev", action="store_true")
     parser.add_argument("--max-cells", type=int, default=50000, help="Max cells to load into memory.")
+    parser.add_argument("--split", type=str, default=None, help="Optional split JSON for split-safe pretraining.")
+    parser.add_argument("--split-scope", choices=["train", "trainval", "all"], default="train")
     args = parser.parse_args()
     if args.no_ema:
         args.ema_decay = 0.0
@@ -89,6 +109,8 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     adata = ad.read_h5ad(args.dataset)
+    if args.split:
+        adata = _filter_by_split(adata, Path(args.split), args.split_scope)
     gene_names = [str(g) for g in adata.var_names]
     X = adata.X
     if args.max_cells:
@@ -163,6 +185,8 @@ def main() -> None:
         json.dumps(
             {
                 "dataset": args.dataset,
+                "split": args.split,
+                "split_scope": args.split_scope,
                 "train": train_cfg.__dict__,
                 "model": cfg.__dict__,
             },

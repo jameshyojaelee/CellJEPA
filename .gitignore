@@ -26,6 +26,7 @@ docs/
 
 # Data (never commit raw/processed datasets)
 data/
+configs/modules
 
 AGENTS.md
 docs/*.pdf
