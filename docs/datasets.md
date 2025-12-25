@@ -45,6 +45,7 @@ These are the initial datasets for M1 ingestion + baseline harness:
 - **scPerturb v1.4 (Zenodo 13350497)** — harmonized `.h5ad` files (includes Sci-Plex2/3/4).
 - **Sci-Plex (Srivatsan 2020)** — drug perturbation across 3 cell lines. We will use the scPerturb-curated Sci-Plex `.h5ad` files for M1; raw source downloads can follow if needed.
 - **NormanWeissman2019 (filtered)** — genetic perturbations; used as an additional M1 dataset for baseline coverage.
+- **Replogle 2022 (K562 essential + RPE1)** — merged into a combined dataset to enable **context OOD** (cell-line holdout) for genetic perturbations.
 
 ## 4) Multi-modal Target (Stage M5)
 

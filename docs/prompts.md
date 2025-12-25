@@ -19,7 +19,7 @@ Use this checklist so a new Codex session can safely resume without redoing work
 
 - [x] **M0** Contracts + split skeleton (completed 2025-12-25; artifacts: `scripts/make_toy_dataset.py`, `scripts/make_splits.py`, `runs/m0_splits/`)
 - [x] **M1** Ingest real dataset(s) + baselines + golden report (Sci-Plex2/3/4 + Norman2019 completed)
-- [ ] **M2** JEPA pretraining + embedding export + diagnostics
+- [x] **M2** JEPA pretraining + embedding export + diagnostics (fast-dev run completed on Sci‑Plex3)
 - [ ] **M3** Transition predictor (prototype + set-level) + ablations
 - [ ] **M4** Multi-dataset + cross-dataset holdout
 - [ ] **M5** (Stretch) Multi-modal RNA+protein
