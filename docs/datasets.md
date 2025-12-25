@@ -47,6 +47,9 @@ These are the initial datasets for M1 ingestion + baseline harness:
 - **NormanWeissman2019 (filtered)** — genetic perturbations; used as an additional M1 dataset for baseline coverage.
 - **Replogle 2022 (K562 essential + RPE1)** — merged into a combined dataset to enable **context OOD** (cell-line holdout) for genetic perturbations.
 
+Current focus (Option A):
+- **Sci‑Plex3 only** for drug perturbations (Sci‑Plex2/4 are optional and currently omitted due to tiny train/test counts under our split protocol).
+
 ## 4) Multi-modal Target (Stage M5)
 
 Candidate:

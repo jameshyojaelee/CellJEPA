@@ -34,6 +34,7 @@ If you change the project direction, update `docs/plan.md` first (then implement
 - **Reproducibility:** prefer config-driven runs; save split files; snapshot configs in run outputs.
 - **No leakage:** any distribution- or label-dependent preprocessing must be computed on training folds only.
 - **Small coherent changes:** avoid drive-by refactors; keep patches scoped to the task.
+- **HPC preference:** default to Slurm jobs (GPU when relevant) even for fast runs, unless explicitly asked to run locally.
 
 ## Dependencies
 

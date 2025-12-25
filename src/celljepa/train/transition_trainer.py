@@ -46,6 +46,7 @@ def train_prototype(
 ) -> Dict[str, float]:
     model.train()
     losses = []
+    skipped = 0
 
     for epoch in range(epochs):
         np.random.shuffle(pairs)
@@ -56,14 +57,24 @@ def train_prototype(
             x = torch.tensor(np.stack([p.control_proto for p in batch]), dtype=torch.float32, device=device)
             y = torch.tensor(np.stack([p.pert_proto for p in batch]), dtype=torch.float32, device=device)
             idx = torch.tensor([pert_to_idx.get(p.perturbation_id, 0) for p in batch], device=device, dtype=torch.long)
+            mask = torch.isfinite(x).all(dim=1) & torch.isfinite(y).all(dim=1)
+            if mask.sum().item() == 0:
+                skipped += len(batch)
+                continue
+            x = x[mask]
+            y = y[mask]
+            idx = idx[mask]
             pred = model(x, idx)
+            if not torch.isfinite(pred).all():
+                skipped += len(batch)
+                continue
             loss = nn.functional.mse_loss(pred, y)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
             losses.append(loss.item())
 
-    return {"loss": float(np.mean(losses)) if losses else float("nan")}
+    return {"loss": float(np.mean(losses)) if losses else float("nan"), "skipped_train": skipped}
 
 
 def train_set(
@@ -102,4 +113,3 @@ def train_set(
             losses.append(loss.item())
 
     return {"loss": float(np.mean(losses)) if losses else float("nan")}
-

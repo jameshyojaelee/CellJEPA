@@ -19,7 +19,7 @@ import torch
 
 from celljepa.models.jepa import JEPA, JepaConfig
 from celljepa.models.transition import PrototypePredictor, SetPredictor, TransitionConfig
-from celljepa.train.transition_trainer import PairProto, PairSet, train_prototype, train_set
+from celljepa.train.transition_trainer import PairProto, PairSet, train_prototype, train_set, energy_distance_torch
 from celljepa.eval.metrics import cosine_distance
 
 
@@ -56,7 +56,7 @@ def build_pairs(adata, max_cells_per_group: int | None = None):
     for context_id, idx in obs[obs["is_control"]].groupby("context_id").indices.items():
         control_groups[context_id] = np.array(idx)
     for (context_id, perturbation_id), idx in obs[~obs["is_control"]].groupby(["context_id", "perturbation_id"]).indices.items():
-        pert_groups[(context_id, perturbation_id)] = np.array(idx)
+        pert_groups[(context_id, perturbation_id)] = np.array(idx, dtype=np.int64)
 
     pairs_proto = []
     pairs_set = []
@@ -67,7 +67,14 @@ def build_pairs(adata, max_cells_per_group: int | None = None):
         if max_cells_per_group:
             c_idx = c_idx[: max_cells_per_group]
             p_idx = p_idx[: max_cells_per_group]
-        pairs_set.append(PairSet(context_id=str(context_id), perturbation_id=str(perturbation_id), control_indices=c_idx, pert_indices=p_idx))
+        pairs_set.append(
+            PairSet(
+                context_id=str(context_id),
+                perturbation_id=str(perturbation_id),
+                control_indices=np.array(c_idx, dtype=np.int64),
+                pert_indices=np.array(p_idx, dtype=np.int64),
+            )
+        )
     return pairs_set
 
 
@@ -91,11 +98,70 @@ def split_pairs(pairs, group_key, split):
 def eval_prototype(pairs: list[PairProto]) -> dict:
     mse = []
     cos = []
+    skipped = 0
     for p in pairs:
+        if not np.isfinite(p.control_proto).all() or not np.isfinite(p.pert_proto).all():
+            skipped += 1
+            continue
         diff = p.control_proto - p.pert_proto
-        mse.append(float(np.mean(diff ** 2)))
-        cos.append(cosine_distance(p.control_proto, p.pert_proto))
-    return {"mse_mean": float(np.mean(mse)), "cosine_mean": float(np.mean(cos))}
+        mse_val = float(np.mean(diff ** 2))
+        cos_val = cosine_distance(p.control_proto, p.pert_proto)
+        if not np.isfinite(mse_val) or not np.isfinite(cos_val):
+            skipped += 1
+            continue
+        mse.append(mse_val)
+        cos.append(cos_val)
+    return {
+        "mse_mean": float(np.mean(mse)) if mse else float("nan"),
+        "cosine_mean": float(np.mean(cos)) if cos else float("nan"),
+        "skipped_pairs": skipped,
+        "n_eval": len(mse),
+    }
+
+
+def eval_set(
+    model: SetPredictor,
+    pairs: list[PairSet],
+    embeddings: np.ndarray,
+    pert_to_idx: dict[str, int],
+    device: str,
+    sample_size: int = 128,
+) -> dict:
+    rng = np.random.default_rng(0)
+    losses = []
+    skipped = 0
+    for p in pairs:
+        c_idx = p.control_indices
+        t_idx = p.pert_indices
+        if c_idx.size == 0 or t_idx.size == 0:
+            skipped += 1
+            continue
+        c_sel = rng.choice(c_idx, size=min(sample_size, c_idx.size), replace=False)
+        t_sel = rng.choice(t_idx, size=min(sample_size, t_idx.size), replace=False)
+
+        c = torch.tensor(embeddings[c_sel], dtype=torch.float32, device=device)
+        y = torch.tensor(embeddings[t_sel], dtype=torch.float32, device=device)
+        if not torch.isfinite(c).all() or not torch.isfinite(y).all():
+            skipped += 1
+            continue
+        idx = torch.tensor([pert_to_idx.get(p.perturbation_id, 0)], device=device, dtype=torch.long)
+        with torch.no_grad():
+            pred = model(c, idx)
+            if not torch.isfinite(pred).all():
+                skipped += 1
+                continue
+            loss = energy_distance_torch(pred, y)
+        loss_val = float(loss.detach().cpu().numpy())
+        if not np.isfinite(loss_val):
+            skipped += 1
+            continue
+        losses.append(loss_val)
+
+    return {
+        "edist_mean": float(np.mean(losses)) if losses else float("nan"),
+        "skipped_pairs": skipped,
+        "n_eval": len(losses),
+    }
 
 
 def main() -> None:
@@ -109,6 +175,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--sample-size", type=int, default=128)
     parser.add_argument("--max-cells-per-group", type=int, default=5000)
+    parser.add_argument("--max-pairs", type=int, default=None, help="Optional cap on number of condition pairs.")
     parser.add_argument("--embed-dim", type=int, default=256)
     parser.add_argument("--hidden-dim", type=int, default=512)
     args = parser.parse_args()
@@ -121,6 +188,9 @@ def main() -> None:
     group_key = split["group_key"]
 
     pairs_set = build_pairs(adata, max_cells_per_group=args.max_cells_per_group)
+    if args.max_pairs and len(pairs_set) > args.max_pairs:
+        rng = np.random.default_rng(0)
+        pairs_set = list(rng.choice(pairs_set, size=args.max_pairs, replace=False))
     train_pairs, val_pairs, test_pairs = split_pairs(pairs_set, group_key, split)
 
     # Build perturbation vocab from train only
@@ -137,8 +207,11 @@ def main() -> None:
 
     # remap to embedding indices
     for p in pairs_set:
-        p.control_indices = np.array([idx_map[i] for i in p.control_indices if i in idx_map])
-        p.pert_indices = np.array([idx_map[i] for i in p.pert_indices if i in idx_map])
+        p.control_indices = np.array([idx_map[i] for i in p.control_indices if i in idx_map], dtype=np.int64)
+        p.pert_indices = np.array([idx_map[i] for i in p.pert_indices if i in idx_map], dtype=np.int64)
+
+    # drop empty pairs after remapping
+    pairs_set = [p for p in pairs_set if p.control_indices.size > 0 and p.pert_indices.size > 0]
 
     cfg = TransitionConfig(embed_dim=args.embed_dim, perturbation_vocab=len(pert_to_idx), hidden_dim=args.hidden_dim)
 
@@ -161,6 +234,7 @@ def main() -> None:
         model = SetPredictor(cfg).to(device)
         opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
         metrics.update(train_set(model, opt, train_pairs, embeddings, pert_to_idx, device, epochs=args.epochs, sample_size=args.sample_size))
+        metrics["test"] = eval_set(model, test_pairs, embeddings, pert_to_idx, device, sample_size=args.sample_size)
         torch.save({"model": model.state_dict(), "pert_to_idx": pert_to_idx, "config": cfg.__dict__}, out_dir / "model.pt")
 
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
@@ -169,4 +243,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

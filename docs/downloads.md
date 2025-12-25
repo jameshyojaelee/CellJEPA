@@ -34,3 +34,92 @@ Or view logs under `logs/`.
 - Test: Replogle K562+RPE1 GPU (`jepa_test_replogle`) → job `12833267`
 - Full: Sci-Plex3 GPU (`jepa_full_sciplex3`) → job `12833268`
 - Full: Replogle K562+RPE1 GPU (`jepa_full_replogle`) → job `12833269`
+
+## Transition Training Jobs (M3, full-scale, v1)
+
+Sci-Plex3:
+- S1 prototype: `12833270`
+- S1 set: `12833271`
+- S2 prototype: `12833272`
+- S2 set: `12833273`
+
+Sci-Plex4:
+- S1 prototype: `12833274`
+- S1 set: `12833275`
+- S2 prototype: `12833276`
+- S2 set: `12833277`
+
+Sci-Plex2 (S1 only):
+- S1 prototype: `12833278`
+- S1 set: `12833279`
+
+Replogle K562+RPE1:
+- S1 prototype: `12833280`
+- S1 set: `12833281`
+- S2 prototype: `12833282`
+- S2 set: `12833283`
+
+## Transition Training Jobs (M3, full-scale, v2 — higher epochs + larger groups)
+
+Sci-Plex3:
+- S1 prototype: `12833284`
+- S1 set: `12833285`
+- S2 prototype: `12833286`
+- S2 set: `12833287`
+
+Sci-Plex4:
+- S1 prototype: `12833288`
+- S1 set: `12833289`
+- S2 prototype: `12833290`
+- S2 set: `12833291`
+
+Sci-Plex2 (S1 only):
+- S1 prototype: `12833292`
+- S1 set: `12833293`
+
+Replogle K562+RPE1:
+- S1 prototype: `12833294`
+- S1 set: `12833295`
+- S2 prototype: `12833296`
+- S2 set: `12833297`
+
+## JEPA Pretrain Jobs (Sci-Plex2/4, separate encoders)
+
+- Sci-Plex2 full JEPA: `12833298`
+- Sci-Plex4 full JEPA: `12833299`
+
+## Transition Training Jobs (Sci-Plex2/4, v3 with dependencies)
+
+Sci-Plex2 (after `12833298`):
+- S1 prototype: `12833300` (afterok:12833298)
+- S1 set: `12833301` (afterok:12833298)
+
+Sci-Plex4 (after `12833299`):
+- S1 prototype: `12833302` (afterok:12833299)
+- S1 set: `12833303` (afterok:12833299)
+- S2 prototype: `12833304` (afterok:12833299)
+- S2 set: `12833305` (afterok:12833299)
+
+## Transition Training Jobs (M3, v3 — much larger epochs/groups)
+
+Sci-Plex3:
+- S1 prototype: `12833308`
+- S1 set: `12833309`
+- S2 prototype: `12833310`
+- S2 set: `12833311`
+
+Sci-Plex4:
+- S1 prototype: `12833312`
+- S1 set: `12833313`
+- S2 prototype: `12833314`
+- S2 set: `12833315`
+
+Sci-Plex2 (S1 only):
+- S1 prototype: `12833316`
+- S1 set: `12833317`
+
+Replogle K562+RPE1:
+- S1 prototype: `12833318`
+- S1 set: `12833319`
+- S2 prototype: `12833320`
+- S2 set: `12833321`
