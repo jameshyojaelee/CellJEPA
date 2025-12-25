@@ -6,17 +6,76 @@ from __future__ import annotations
 import glob
 import json
 from pathlib import Path
+from typing import Iterable
+
+
+def iter_metric_paths() -> Iterable[Path]:
+    patterns = [
+        "runs/m3_*/metrics.json",
+        "runs/m3_*/*/metrics.json",
+    ]
+    seen = set()
+    for pattern in patterns:
+        for path in glob.glob(pattern):
+            p = Path(path)
+            if p in seen:
+                continue
+            seen.add(p)
+            yield p
+
+
+def parse_name(tag: str) -> tuple[str, str]:
+    tokens = [t for t in tag.split("_") if t]
+    if tokens and tokens[0].lower() == "m3":
+        tokens = tokens[1:]
+
+    dataset_tokens = []
+    for token in tokens:
+        lower = token.lower()
+        if lower in {"s1", "s2", "proto", "prototype", "set"}:
+            break
+        dataset_tokens.append(token)
+
+    dataset = "_".join(dataset_tokens) if dataset_tokens else "unknown"
+    split = "unknown"
+    for token in tokens:
+        lower = token.lower()
+        if lower == "s1":
+            split = "S1"
+        elif lower == "s2":
+            split = "S2"
+    return dataset, split
+
+
+def parse_path(p: Path) -> dict:
+    parts = p.parts
+    run_id = "unknown"
+    if len(parts) >= 2 and parts[0] == "runs":
+        run_id = parts[1]
+
+    if len(parts) >= 4 and parts[-1] == "metrics.json":
+        tag = parts[-2]
+    else:
+        tag = run_id
+
+    dataset, split = parse_name(tag)
+    return {
+        "run_id": run_id,
+        "dataset": dataset,
+        "split": split,
+    }
 
 
 def load_metrics() -> list[dict]:
     rows = []
-    for path in glob.glob("runs/m3_*/*/metrics.json"):
-        p = Path(path)
+    for p in iter_metric_paths():
         try:
             data = json.loads(p.read_text())
         except Exception:
             continue
+        meta = parse_path(p)
         row = {
+            **meta,
             "path": str(p),
             "mode": data.get("mode"),
             "n_train": data.get("n_train"),
@@ -37,32 +96,16 @@ def load_metrics() -> list[dict]:
 
 def render_table(rows: list[dict]) -> str:
     header = [
-        "dataset", "split", "mode", "n_train", "n_test", "loss",
+        "run_id", "dataset", "split", "mode", "n_train", "n_test", "loss",
         "test_mse", "test_cos", "test_edist", "skipped_pairs", "n_eval",
     ]
     lines = ["| " + " | ".join(header) + " |", "|" + "|".join(["---"] * len(header)) + "|"]
 
-    def parse_dataset(p: str) -> tuple[str, str]:
-        # runs/m3_full_v3/<dataset_split_mode>/metrics.json
-        parts = Path(p).parts
-        try:
-            run = parts[2]  # e.g., m3_full_v3
-            name = parts[3]  # e.g., sciplex3_s1_proto
-        except Exception:
-            return "unknown", "unknown"
-        # best-effort split extraction
-        split = "unknown"
-        if "_s1_" in name:
-            split = "S1"
-        elif "_s2_" in name:
-            split = "S2"
-        return name, split
-
     for r in rows:
-        dataset, split = parse_dataset(r["path"])
         line = [
-            dataset,
-            split,
+            str(r.get("run_id", "")),
+            str(r.get("dataset", "")),
+            str(r.get("split", "")),
             str(r.get("mode", "")),
             str(r.get("n_train", "")),
             str(r.get("n_test", "")),
@@ -80,14 +123,14 @@ def render_table(rows: list[dict]) -> str:
 
 def main() -> None:
     rows = load_metrics()
-    rows = sorted(rows, key=lambda r: r["path"])
+    rows = sorted(rows, key=lambda r: (r.get("run_id", ""), r.get("dataset", ""), r.get("split", ""), r.get("mode", ""), r["path"]))
     out = Path("reports/m3_summary.md")
     out.parent.mkdir(parents=True, exist_ok=True)
 
     content = [
         "# M3 Summary (Auto-generated)",
         "",
-        "This table aggregates all `runs/m3_*/*/metrics.json` files.",
+        "This table aggregates all `runs/m3_*/*/metrics.json` and `runs/m3_*/metrics.json` files.",
         "",
         render_table(rows),
         "",
@@ -103,4 +146,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

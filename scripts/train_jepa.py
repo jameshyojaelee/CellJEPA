@@ -37,6 +37,24 @@ def _sample_rows(X, n: int, seed: int = 0):
     return X[idx]
 
 
+def load_module_masks(path: Path, gene_names: list[str]) -> list[np.ndarray]:
+    data = json.loads(path.read_text())
+    if isinstance(data, dict):
+        modules = list(data.values())
+    else:
+        modules = data
+    name_to_idx = {name: i for i, name in enumerate(gene_names)}
+    module_indices = []
+    for entry in modules:
+        genes = entry.get("genes") if isinstance(entry, dict) else entry
+        if not genes:
+            continue
+        idx = [name_to_idx[g] for g in genes if g in name_to_idx]
+        if idx:
+            module_indices.append(np.array(idx, dtype=np.int64))
+    return module_indices
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train JEPA (M2 minimal).")
     parser.add_argument("--dataset", required=True, help="Processed .h5ad path.")
@@ -49,22 +67,43 @@ def main() -> None:
     parser.add_argument("--embed-dim", type=int, default=256)
     parser.add_argument("--hidden-dim", type=int, default=512)
     parser.add_argument("--mask-ratio", type=float, default=0.25)
+    parser.add_argument("--mask-type", choices=["random", "module"], default="random")
+    parser.add_argument("--module-mask-path", type=str, default=None)
     parser.add_argument("--ema-decay", type=float, default=0.99)
+    parser.add_argument("--no-ema", action="store_true")
+    parser.add_argument("--variance-target", type=float, default=1.0)
+    parser.add_argument("--variance-weight", type=float, default=1.0)
+    parser.add_argument("--covariance-weight", type=float, default=1.0)
+    parser.add_argument("--no-reg", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--fast-dev", action="store_true")
     parser.add_argument("--max-cells", type=int, default=50000, help="Max cells to load into memory.")
     args = parser.parse_args()
+    if args.no_ema:
+        args.ema_decay = 0.0
+    if args.no_reg:
+        args.variance_weight = 0.0
+        args.covariance_weight = 0.0
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     adata = ad.read_h5ad(args.dataset)
+    gene_names = [str(g) for g in adata.var_names]
     X = adata.X
     if args.max_cells:
         X = _sample_rows(X, args.max_cells, seed=args.seed)
     X = _to_dense(X).astype(np.float32)
     if args.fast_dev:
         X = X[: min(5000, X.shape[0])]
+
+    module_indices = None
+    if args.mask_type == "module":
+        if not args.module_mask_path:
+            raise ValueError("--module-mask-path is required when --mask-type=module")
+        module_indices = load_module_masks(Path(args.module_mask_path), gene_names)
+        if not module_indices:
+            raise ValueError("No valid module masks found for the provided gene set file.")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     set_seed(args.seed)
@@ -76,6 +115,9 @@ def main() -> None:
         predictor_hidden=args.hidden_dim,
         ema_decay=args.ema_decay,
         mask_ratio=args.mask_ratio,
+        variance_target=args.variance_target,
+        variance_weight=args.variance_weight,
+        covariance_weight=args.covariance_weight,
     )
     train_cfg = TrainConfig(
         batch_size=args.batch_size,
@@ -86,6 +128,8 @@ def main() -> None:
         device=device,
         seed=args.seed,
         fast_dev=args.fast_dev,
+        mask_type=args.mask_type,
+        module_mask_path=args.module_mask_path,
     )
 
     model = JEPA(cfg).to(device)
@@ -96,7 +140,17 @@ def main() -> None:
 
     history = []
     for epoch in range(train_cfg.epochs):
-        metrics = train_epoch(model, opt, (batch[0] for batch in loader), cfg, train_cfg)
+        rng = np.random.default_rng(args.seed + epoch)
+        metrics = train_epoch(
+            model,
+            opt,
+            (batch[0] for batch in loader),
+            cfg,
+            train_cfg,
+            mask_type=args.mask_type,
+            module_indices=module_indices,
+            rng=rng,
+        )
         metrics["epoch"] = epoch
         history.append(metrics)
         print(f"epoch {epoch} loss={metrics['loss']:.4f} mse={metrics['mse']:.4f} var={metrics['var']:.4f} cov={metrics['cov']:.4f}")

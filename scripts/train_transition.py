@@ -20,7 +20,7 @@ import torch
 from celljepa.models.jepa import JEPA, JepaConfig
 from celljepa.models.transition import PrototypePredictor, SetPredictor, TransitionConfig
 from celljepa.train.transition_trainer import PairProto, PairSet, train_prototype, train_set, energy_distance_torch
-from celljepa.eval.metrics import cosine_distance
+from celljepa.eval.metrics import cosine_distance, bootstrap_mean
 
 
 def _to_dense(x):
@@ -49,7 +49,8 @@ def embed_cells(adata, checkpoint_path: Path, indices: np.ndarray, batch_size: i
     return out
 
 
-def build_pairs(adata, max_cells_per_group: int | None = None):
+def build_pairs(adata, max_cells_per_group: int | None = None, seed: int = 0):
+    rng = np.random.default_rng(seed)
     obs = adata.obs
     control_groups = {}
     pert_groups = {}
@@ -58,15 +59,16 @@ def build_pairs(adata, max_cells_per_group: int | None = None):
     for (context_id, perturbation_id), idx in obs[~obs["is_control"]].groupby(["context_id", "perturbation_id"]).indices.items():
         pert_groups[(context_id, perturbation_id)] = np.array(idx, dtype=np.int64)
 
-    pairs_proto = []
     pairs_set = []
     for (context_id, perturbation_id), p_idx in pert_groups.items():
         c_idx = control_groups.get(context_id)
         if c_idx is None or p_idx.size == 0:
             continue
         if max_cells_per_group:
-            c_idx = c_idx[: max_cells_per_group]
-            p_idx = p_idx[: max_cells_per_group]
+            if c_idx.size > max_cells_per_group:
+                c_idx = rng.choice(c_idx, size=max_cells_per_group, replace=False)
+            if p_idx.size > max_cells_per_group:
+                p_idx = rng.choice(p_idx, size=max_cells_per_group, replace=False)
         pairs_set.append(
             PairSet(
                 context_id=str(context_id),
@@ -75,6 +77,7 @@ def build_pairs(adata, max_cells_per_group: int | None = None):
                 pert_indices=np.array(p_idx, dtype=np.int64),
             )
         )
+    pairs_set.sort(key=lambda p: (p.context_id, p.perturbation_id))
     return pairs_set
 
 
@@ -95,73 +98,295 @@ def split_pairs(pairs, group_key, split):
     return train, val, test
 
 
-def eval_prototype(pairs: list[PairProto]) -> dict:
-    mse = []
-    cos = []
+def _summarize(values: list[float], bootstrap_samples: int, bootstrap_seed: int) -> tuple[float, tuple[float, float], int]:
+    values = [v for v in values if np.isfinite(v)]
+    if not values:
+        return float("nan"), (float("nan"), float("nan")), 0
+    mean, lo, hi = bootstrap_mean(values, num_samples=bootstrap_samples, seed=bootstrap_seed)
+    return mean, (lo, hi), len(values)
+
+
+def _sample_indices(rng: np.random.Generator, indices: np.ndarray, n: int) -> np.ndarray | None:
+    if indices.size == 0 or n <= 0:
+        return None
+    if n > indices.size:
+        n = indices.size
+    return rng.choice(indices, size=n, replace=False)
+
+
+def _resampled_edist(
+    control_idx: np.ndarray,
+    pert_idx: np.ndarray,
+    embeddings: np.ndarray,
+    rng: np.random.Generator,
+    sample_size: int,
+    resamples: int,
+    device: str,
+    pred_fn,
+) -> list[float]:
+    if control_idx.size == 0 or pert_idx.size == 0:
+        return []
+    n = min(sample_size, control_idx.size, pert_idx.size)
+    if n <= 0:
+        return []
+    edists: list[float] = []
+    for _ in range(resamples):
+        c_sel = _sample_indices(rng, control_idx, n)
+        t_sel = _sample_indices(rng, pert_idx, n)
+        if c_sel is None or t_sel is None:
+            continue
+        c = torch.tensor(embeddings[c_sel], dtype=torch.float32, device=device)
+        y = torch.tensor(embeddings[t_sel], dtype=torch.float32, device=device)
+        if not torch.isfinite(c).all() or not torch.isfinite(y).all():
+            continue
+        pred = pred_fn(c)
+        if not torch.isfinite(pred).all():
+            continue
+        loss = energy_distance_torch(pred, y)
+        loss_val = float(loss.detach().cpu().numpy())
+        if not np.isfinite(loss_val):
+            continue
+        edists.append(loss_val)
+    return edists
+
+
+def build_proto_pairs(pairs: list[PairSet], embeddings: np.ndarray) -> tuple[list[PairProto], int]:
+    pairs_proto: list[PairProto] = []
     skipped = 0
     for p in pairs:
-        if not np.isfinite(p.control_proto).all() or not np.isfinite(p.pert_proto).all():
+        c = embeddings[p.control_indices]
+        y = embeddings[p.pert_indices]
+        if c.size == 0 or y.size == 0:
             skipped += 1
             continue
-        diff = p.control_proto - p.pert_proto
-        mse_val = float(np.mean(diff ** 2))
-        cos_val = cosine_distance(p.control_proto, p.pert_proto)
-        if not np.isfinite(mse_val) or not np.isfinite(cos_val):
+        c_mean = np.mean(c, axis=0)
+        y_mean = np.mean(y, axis=0)
+        if not np.isfinite(c_mean).all() or not np.isfinite(y_mean).all():
             skipped += 1
             continue
-        mse.append(mse_val)
-        cos.append(cos_val)
+        pairs_proto.append(PairProto(p.context_id, p.perturbation_id, c_mean, y_mean))
+    return pairs_proto, skipped
+
+
+def eval_prototype_model(
+    model: PrototypePredictor,
+    pairs: list[PairProto],
+    pert_to_idx: dict[str, int],
+    device: str,
+    bootstrap_samples: int,
+    bootstrap_seed: int,
+) -> dict:
+    mse_vals: list[float] = []
+    cos_vals: list[float] = []
+    skipped = 0
+    model.eval()
+    with torch.no_grad():
+        for p in pairs:
+            if not np.isfinite(p.control_proto).all() or not np.isfinite(p.pert_proto).all():
+                skipped += 1
+                continue
+            control = torch.tensor(p.control_proto[None, :], dtype=torch.float32, device=device)
+            idx = torch.tensor([pert_to_idx.get(p.perturbation_id, 0)], device=device, dtype=torch.long)
+            pred = model(control, idx).cpu().numpy()[0]
+            if not np.isfinite(pred).all():
+                skipped += 1
+                continue
+            mse_val = float(np.mean((pred - p.pert_proto) ** 2))
+            cos_val = cosine_distance(pred, p.pert_proto)
+            if not np.isfinite(mse_val) or not np.isfinite(cos_val):
+                skipped += 1
+                continue
+            mse_vals.append(mse_val)
+            cos_vals.append(cos_val)
+    mse_mean, mse_ci, n_eval = _summarize(mse_vals, bootstrap_samples, bootstrap_seed)
+    cos_mean, cos_ci, _ = _summarize(cos_vals, bootstrap_samples, bootstrap_seed)
     return {
-        "mse_mean": float(np.mean(mse)) if mse else float("nan"),
-        "cosine_mean": float(np.mean(cos)) if cos else float("nan"),
+        "mse_mean": mse_mean,
+        "mse_ci95": mse_ci,
+        "cosine_mean": cos_mean,
+        "cosine_ci95": cos_ci,
         "skipped_pairs": skipped,
-        "n_eval": len(mse),
+        "n_eval": n_eval,
     }
 
 
-def eval_set(
+def eval_set_model(
     model: SetPredictor,
     pairs: list[PairSet],
     embeddings: np.ndarray,
     pert_to_idx: dict[str, int],
     device: str,
-    sample_size: int = 128,
+    sample_size: int,
+    resamples: int,
+    seed: int,
+    bootstrap_samples: int,
+    bootstrap_seed: int,
 ) -> dict:
-    rng = np.random.default_rng(0)
-    losses = []
+    rng = np.random.default_rng(seed)
+    per_pair: list[float] = []
     skipped = 0
+    model.eval()
     for p in pairs:
-        c_idx = p.control_indices
-        t_idx = p.pert_indices
-        if c_idx.size == 0 or t_idx.size == 0:
-            skipped += 1
-            continue
-        c_sel = rng.choice(c_idx, size=min(sample_size, c_idx.size), replace=False)
-        t_sel = rng.choice(t_idx, size=min(sample_size, t_idx.size), replace=False)
-
-        c = torch.tensor(embeddings[c_sel], dtype=torch.float32, device=device)
-        y = torch.tensor(embeddings[t_sel], dtype=torch.float32, device=device)
-        if not torch.isfinite(c).all() or not torch.isfinite(y).all():
-            skipped += 1
-            continue
         idx = torch.tensor([pert_to_idx.get(p.perturbation_id, 0)], device=device, dtype=torch.long)
-        with torch.no_grad():
-            pred = model(c, idx)
-            if not torch.isfinite(pred).all():
+
+        def pred_fn(c):
+            with torch.no_grad():
+                return model(c, idx)
+
+        edists = _resampled_edist(
+            p.control_indices,
+            p.pert_indices,
+            embeddings,
+            rng,
+            sample_size,
+            resamples,
+            device,
+            pred_fn,
+        )
+        if not edists:
+            skipped += 1
+            continue
+        per_pair.append(float(np.mean(edists)))
+
+    edist_mean, edist_ci, n_eval = _summarize(per_pair, bootstrap_samples, bootstrap_seed)
+    return {
+        "edist_mean": edist_mean,
+        "edist_ci95": edist_ci,
+        "skipped_pairs": skipped,
+        "n_eval": n_eval,
+    }
+
+
+def _ridge_fit(X: np.ndarray, Y: np.ndarray, alpha: float) -> np.ndarray:
+    Xb = np.concatenate([X, np.ones((X.shape[0], 1))], axis=1)
+    XtX = Xb.T @ Xb
+    XtX += alpha * np.eye(XtX.shape[0])
+    W = np.linalg.solve(XtX, Xb.T @ Y)
+    return W
+
+
+def _ridge_predict(X: np.ndarray, W: np.ndarray) -> np.ndarray:
+    Xb = np.concatenate([X, np.ones((X.shape[0], 1))], axis=1)
+    return Xb @ W
+
+
+def _mean_shift_by_pert(train_proto: list[PairProto]) -> dict[str, np.ndarray]:
+    shifts: dict[str, list[np.ndarray]] = {}
+    for p in train_proto:
+        shifts.setdefault(p.perturbation_id, []).append(p.pert_proto - p.control_proto)
+    shift_by_pert = {}
+    for pid, vals in shifts.items():
+        shift_by_pert[pid] = np.mean(np.stack(vals), axis=0)
+    return shift_by_pert
+
+
+def _fit_ridge_proto(
+    train_proto: list[PairProto],
+    val_proto: list[PairProto],
+    ridge_alphas: list[float],
+) -> tuple[np.ndarray, float]:
+    if not train_proto:
+        raise ValueError("No training pairs available for ridge baseline.")
+    X_train = np.stack([p.control_proto for p in train_proto])
+    Y_train = np.stack([p.pert_proto for p in train_proto])
+    if val_proto:
+        X_val = np.stack([p.control_proto for p in val_proto])
+        Y_val = np.stack([p.pert_proto for p in val_proto])
+    else:
+        X_val, Y_val = None, None
+
+    best_alpha = ridge_alphas[0]
+    best_score = float("inf")
+    best_W = None
+    for alpha in ridge_alphas:
+        W = _ridge_fit(X_train, Y_train, alpha)
+        if X_val is not None and X_val.size > 0:
+            pred = _ridge_predict(X_val, W)
+            mse = float(np.mean((pred - Y_val) ** 2))
+        else:
+            pred = _ridge_predict(X_train, W)
+            mse = float(np.mean((pred - Y_train) ** 2))
+        if mse < best_score:
+            best_score = mse
+            best_alpha = alpha
+            best_W = W
+    return best_W, best_alpha
+
+
+def evaluate_set_baselines(
+    train_proto: list[PairProto],
+    val_proto: list[PairProto],
+    test_pairs: list[PairSet],
+    test_proto_map: dict[tuple[str, str], PairProto],
+    embeddings: np.ndarray,
+    sample_size: int,
+    resamples: int,
+    seed: int,
+    ridge_alphas: list[float],
+    bootstrap_samples: int,
+    bootstrap_seed: int,
+    device: str,
+) -> dict:
+    shift_by_pert = _mean_shift_by_pert(train_proto) if train_proto else {}
+    ridge_W, ridge_alpha = _fit_ridge_proto(train_proto, val_proto, ridge_alphas) if train_proto else (None, float("nan"))
+
+    def eval_shift(name: str, shift_fn, rng_seed: int):
+        rng = np.random.default_rng(rng_seed)
+        per_pair: list[float] = []
+        skipped = 0
+        for p in test_pairs:
+            proto = test_proto_map.get((p.context_id, p.perturbation_id))
+            if proto is None:
                 skipped += 1
                 continue
-            loss = energy_distance_torch(pred, y)
-        loss_val = float(loss.detach().cpu().numpy())
-        if not np.isfinite(loss_val):
-            skipped += 1
-            continue
-        losses.append(loss_val)
+            shift = shift_fn(proto)
+            if shift is None or not np.isfinite(shift).all():
+                skipped += 1
+                continue
+            shift_t = torch.tensor(shift, dtype=torch.float32, device=device)
 
-    return {
-        "edist_mean": float(np.mean(losses)) if losses else float("nan"),
-        "skipped_pairs": skipped,
-        "n_eval": len(losses),
-    }
+            def pred_fn(c):
+                return c + shift_t
+
+            edists = _resampled_edist(
+                p.control_indices,
+                p.pert_indices,
+                embeddings,
+                rng,
+                sample_size,
+                resamples,
+                device,
+                pred_fn,
+            )
+            if not edists:
+                skipped += 1
+                continue
+            per_pair.append(float(np.mean(edists)))
+        mean, ci, n_eval = _summarize(per_pair, bootstrap_samples, bootstrap_seed)
+        return {
+            "edist_mean": mean,
+            "edist_ci95": ci,
+            "skipped_pairs": skipped,
+            "n_eval": n_eval,
+        }
+
+    results = {}
+    results["no_change"] = eval_shift("no_change", lambda proto: np.zeros_like(proto.control_proto), seed + 1)
+    results["mean_shift"] = eval_shift(
+        "mean_shift",
+        lambda proto: shift_by_pert.get(proto.perturbation_id, np.zeros_like(proto.control_proto)),
+        seed + 2,
+    ) if train_proto else {}
+
+    def ridge_shift(proto: PairProto):
+        if ridge_W is None:
+            return None
+        pred = _ridge_predict(proto.control_proto[None, :], ridge_W)[0]
+        return pred - proto.control_proto
+
+    results["ridge"] = eval_shift("ridge", ridge_shift, seed + 3) if train_proto else {}
+    results["ridge_alpha"] = ridge_alpha
+    return results
 
 
 def main() -> None:
@@ -174,32 +399,44 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--sample-size", type=int, default=128)
+    parser.add_argument("--eval-sample-size", type=int, default=None)
+    parser.add_argument("--eval-resamples", type=int, default=5)
     parser.add_argument("--max-cells-per-group", type=int, default=5000)
     parser.add_argument("--max-pairs", type=int, default=None, help="Optional cap on number of condition pairs.")
     parser.add_argument("--embed-dim", type=int, default=256)
     parser.add_argument("--hidden-dim", type=int, default=512)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--bootstrap-samples", type=int, default=1000)
+    parser.add_argument("--bootstrap-seed", type=int, default=0)
+    parser.add_argument("--eval-baselines", action="store_true", help="Compute set-level baseline E-distance metrics.")
+    parser.add_argument("--ridge-alphas", type=str, default="0.1,1.0,10.0,100.0")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
+    eval_sample_size = args.eval_sample_size or args.sample_size
+    ridge_alphas = [float(x) for x in args.ridge_alphas.split(",") if x]
+
     adata = ad.read_h5ad(args.dataset)
     split = json.loads(Path(args.split).read_text())
     group_key = split["group_key"]
+    dataset_id = split.get("dataset_id") or adata.uns.get("dataset_id") or Path(args.dataset).stem
+    split_name = split.get("split_name") or Path(args.split).stem
 
-    pairs_set = build_pairs(adata, max_cells_per_group=args.max_cells_per_group)
+    pairs_set = build_pairs(adata, max_cells_per_group=args.max_cells_per_group, seed=args.seed)
     if args.max_pairs and len(pairs_set) > args.max_pairs:
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(args.seed)
         pairs_set = list(rng.choice(pairs_set, size=args.max_pairs, replace=False))
-    train_pairs, val_pairs, test_pairs = split_pairs(pairs_set, group_key, split)
-
-    # Build perturbation vocab from train only
-    train_perturbations = sorted({p.perturbation_id for p in train_pairs})
-    pert_to_idx = {"<UNK>": 0}
-    for i, p in enumerate(train_perturbations, 1):
-        pert_to_idx[p] = i
 
     # Collect indices to embed
+    if not pairs_set:
+        raise ValueError("No condition pairs available after filtering.")
     indices = np.unique(np.concatenate([p.control_indices for p in pairs_set] + [p.pert_indices for p in pairs_set]))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     embeddings = embed_cells(adata, Path(args.checkpoint), indices, device=device)
@@ -210,31 +447,129 @@ def main() -> None:
         p.control_indices = np.array([idx_map[i] for i in p.control_indices if i in idx_map], dtype=np.int64)
         p.pert_indices = np.array([idx_map[i] for i in p.pert_indices if i in idx_map], dtype=np.int64)
 
-    # drop empty pairs after remapping
-    pairs_set = [p for p in pairs_set if p.control_indices.size > 0 and p.pert_indices.size > 0]
+    finite_mask = np.isfinite(embeddings).all(axis=1)
+    nonfinite_cells = int(np.sum(~finite_mask))
+    filtered_pairs = []
+    dropped_nonfinite = 0
+    for p in pairs_set:
+        c_idx = p.control_indices[finite_mask[p.control_indices]]
+        t_idx = p.pert_indices[finite_mask[p.pert_indices]]
+        if c_idx.size == 0 or t_idx.size == 0:
+            dropped_nonfinite += 1
+            continue
+        p.control_indices = c_idx
+        p.pert_indices = t_idx
+        filtered_pairs.append(p)
+    pairs_set = filtered_pairs
 
-    cfg = TransitionConfig(embed_dim=args.embed_dim, perturbation_vocab=len(pert_to_idx), hidden_dim=args.hidden_dim)
+    train_pairs, val_pairs, test_pairs = split_pairs(pairs_set, group_key, split)
 
-    metrics = {"mode": args.mode, "n_train": len(train_pairs), "n_test": len(test_pairs)}
+    # Build perturbation vocab from train only
+    train_perturbations = sorted({p.perturbation_id for p in train_pairs})
+    pert_to_idx = {"<UNK>": 0}
+    for i, p in enumerate(train_perturbations, 1):
+        pert_to_idx[p] = i
+
+    ckpt_meta = torch.load(args.checkpoint, map_location="cpu")
+    jepa_cfg = ckpt_meta.get("config", {})
+    embed_dim = jepa_cfg.get("embed_dim", args.embed_dim)
+    if embed_dim != args.embed_dim:
+        print(f"Warning: overriding embed_dim={args.embed_dim} with checkpoint embed_dim={embed_dim}.")
+
+    cfg = TransitionConfig(embed_dim=embed_dim, perturbation_vocab=len(pert_to_idx), hidden_dim=args.hidden_dim)
+
+    train_proto, skipped_train_proto = build_proto_pairs(train_pairs, embeddings)
+    val_proto, skipped_val_proto = build_proto_pairs(val_pairs, embeddings)
+    test_proto, skipped_test_proto = build_proto_pairs(test_pairs, embeddings)
+    test_proto_map = {(p.context_id, p.perturbation_id): p for p in test_proto}
+
+    metrics = {
+        "mode": args.mode,
+        "dataset_id": dataset_id,
+        "split_name": split_name,
+        "group_key": group_key,
+        "seed": args.seed,
+        "n_train": len(train_pairs),
+        "n_val": len(val_pairs),
+        "n_test": len(test_pairs),
+        "pairs_total": len(pairs_set),
+        "nonfinite_cells": nonfinite_cells,
+        "pairs_dropped_nonfinite": dropped_nonfinite,
+        "proto_skipped": {
+            "train": skipped_train_proto,
+            "val": skipped_val_proto,
+            "test": skipped_test_proto,
+        },
+        "eval_config": {
+            "sample_size": eval_sample_size,
+            "resamples": args.eval_resamples,
+            "bootstrap_samples": args.bootstrap_samples,
+            "bootstrap_seed": args.bootstrap_seed,
+        },
+        "jepa_config": jepa_cfg,
+    }
+    cfg_path = Path(args.checkpoint).with_name("config.json")
+    if cfg_path.exists():
+        try:
+            metrics["jepa_run_config"] = json.loads(cfg_path.read_text())
+        except Exception:
+            metrics["jepa_run_config"] = None
     if args.mode == "prototype":
         model = PrototypePredictor(cfg).to(device)
         opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-        # build prototype pairs
-        pairs_proto = []
-        for p in train_pairs + test_pairs:
-            c = embeddings[p.control_indices].mean(axis=0)
-            y = embeddings[p.pert_indices].mean(axis=0)
-            pairs_proto.append(PairProto(p.context_id, p.perturbation_id, c, y))
-        train_proto = [p for p in pairs_proto if p.perturbation_id in train_perturbations]
-        test_proto = [p for p in pairs_proto if p.perturbation_id not in train_perturbations]
         metrics.update(train_prototype(model, opt, train_proto, pert_to_idx, device, epochs=args.epochs, batch_size=args.batch_size))
-        metrics["test"] = eval_prototype(test_proto) if test_proto else eval_prototype(pairs_proto)
+        metrics["test"] = eval_prototype_model(
+            model,
+            test_proto,
+            pert_to_idx,
+            device,
+            args.bootstrap_samples,
+            args.bootstrap_seed,
+        )
         torch.save({"model": model.state_dict(), "pert_to_idx": pert_to_idx, "config": cfg.__dict__}, out_dir / "model.pt")
     else:
         model = SetPredictor(cfg).to(device)
         opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-        metrics.update(train_set(model, opt, train_pairs, embeddings, pert_to_idx, device, epochs=args.epochs, sample_size=args.sample_size))
-        metrics["test"] = eval_set(model, test_pairs, embeddings, pert_to_idx, device, sample_size=args.sample_size)
+        metrics.update(
+            train_set(
+                model,
+                opt,
+                train_pairs,
+                embeddings,
+                pert_to_idx,
+                device,
+                epochs=args.epochs,
+                sample_size=args.sample_size,
+                seed=args.seed,
+            )
+        )
+        metrics["test"] = eval_set_model(
+            model,
+            test_pairs,
+            embeddings,
+            pert_to_idx,
+            device,
+            eval_sample_size,
+            args.eval_resamples,
+            args.seed,
+            args.bootstrap_samples,
+            args.bootstrap_seed,
+        )
+        if args.eval_baselines:
+            metrics["baselines"] = evaluate_set_baselines(
+                train_proto,
+                val_proto,
+                test_pairs,
+                test_proto_map,
+                embeddings,
+                eval_sample_size,
+                args.eval_resamples,
+                args.seed,
+                ridge_alphas,
+                args.bootstrap_samples,
+                args.bootstrap_seed,
+                device,
+            )
         torch.save({"model": model.state_dict(), "pert_to_idx": pert_to_idx, "config": cfg.__dict__}, out_dir / "model.pt")
 
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")

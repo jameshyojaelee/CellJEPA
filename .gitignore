@@ -22,9 +22,13 @@ ENV/
 runs/
 logs/
 configs/download/
+docs/
 
 # Data (never commit raw/processed datasets)
 data/
 
 AGENTS.md
 docs/*.pdf
+docs/PROJECT_STATE.md
+docs/DECISIONS.md
+docs/downloads.md

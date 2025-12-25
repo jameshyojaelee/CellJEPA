@@ -19,7 +19,14 @@ STEPS_PER_EPOCH=${STEPS_PER_EPOCH:-}
 EMBED_DIM=${EMBED_DIM:-256}
 HIDDEN_DIM=${HIDDEN_DIM:-512}
 MASK_RATIO=${MASK_RATIO:-0.25}
+MASK_TYPE=${MASK_TYPE:-random}
+MODULE_MASK_PATH=${MODULE_MASK_PATH:-}
 EMA_DECAY=${EMA_DECAY:-0.99}
+NO_EMA=${NO_EMA:-}
+VARIANCE_TARGET=${VARIANCE_TARGET:-1.0}
+VARIANCE_WEIGHT=${VARIANCE_WEIGHT:-1.0}
+COVARIANCE_WEIGHT=${COVARIANCE_WEIGHT:-1.0}
+NO_REG=${NO_REG:-}
 SEED=${SEED:-0}
 
 cd /gpfs/commons/home/jameslee/CellJEPA
@@ -33,14 +40,29 @@ CMD=(python3 scripts/train_jepa.py \
   --embed-dim "$EMBED_DIM" \
   --hidden-dim "$HIDDEN_DIM" \
   --mask-ratio "$MASK_RATIO" \
+  --mask-type "$MASK_TYPE" \
   --ema-decay "$EMA_DECAY" \
+  --variance-target "$VARIANCE_TARGET" \
+  --variance-weight "$VARIANCE_WEIGHT" \
+  --covariance-weight "$COVARIANCE_WEIGHT" \
   --seed "$SEED" \
   --max-cells "$MAX_CELLS")
+
+if [ -n "$MODULE_MASK_PATH" ]; then
+  CMD+=(--module-mask-path "$MODULE_MASK_PATH")
+fi
 
 if [ -n "$STEPS_PER_EPOCH" ]; then
   CMD+=(--steps-per-epoch "$STEPS_PER_EPOCH")
 fi
 
+if [ -n "$NO_EMA" ]; then
+  CMD+=(--no-ema)
+fi
+
+if [ -n "$NO_REG" ]; then
+  CMD+=(--no-reg)
+fi
+
 echo "Running: ${CMD[*]}"
 ${CMD[@]}
-

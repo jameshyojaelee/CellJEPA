@@ -86,10 +86,11 @@ def train_set(
     device: str,
     epochs: int = 10,
     sample_size: int = 128,
+    seed: int = 0,
 ) -> Dict[str, float]:
     model.train()
     losses = []
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
 
     for epoch in range(epochs):
         rng.shuffle(pairs)

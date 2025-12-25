@@ -22,6 +22,8 @@ class TrainConfig:
     device: str = "cpu"
     seed: int = 0
     fast_dev: bool = False
+    mask_type: str = "random"
+    module_mask_path: str | None = None
 
 
 def set_seed(seed: int) -> None:
@@ -36,18 +38,46 @@ def train_epoch(
     data_iter: Iterable[torch.Tensor],
     cfg: JepaConfig,
     train_cfg: TrainConfig,
+    mask_type: str = "random",
+    module_indices: list[np.ndarray] | None = None,
+    rng: np.random.Generator | None = None,
 ) -> Dict[str, float]:
     model.train()
     losses = []
     var_losses = []
     cov_losses = []
     mse_losses = []
+    if rng is None:
+        rng = np.random.default_rng(train_cfg.seed)
+
+    def build_module_mask(batch_size: int, num_genes: int) -> torch.Tensor:
+        if not module_indices:
+            raise ValueError("module_indices required for module masking.")
+        mask = np.zeros((batch_size, num_genes), dtype=np.float32)
+        target = max(1, int(cfg.mask_ratio * num_genes))
+        for i in range(batch_size):
+            masked = 0
+            tries = 0
+            while masked < target and tries < len(module_indices) * 5:
+                module = module_indices[rng.integers(len(module_indices))]
+                mask[i, module] = 1.0
+                masked = int(mask[i].sum())
+                tries += 1
+            if masked == 0:
+                idx = rng.choice(num_genes, size=target, replace=False)
+                mask[i, idx] = 1.0
+        return torch.from_numpy(mask)
 
     for step, x in enumerate(data_iter):
         if train_cfg.steps_per_epoch and step >= train_cfg.steps_per_epoch:
             break
         x = x.to(train_cfg.device)
-        mask = (torch.rand_like(x) < cfg.mask_ratio).float()
+        if mask_type == "random":
+            mask = (torch.rand_like(x) < cfg.mask_ratio).float()
+        elif mask_type == "module":
+            mask = build_module_mask(x.shape[0], x.shape[1]).to(train_cfg.device)
+        else:
+            raise ValueError(f"Unknown mask_type: {mask_type}")
         z_pred, z_tgt, z_ctx = model(x, mask)
 
         mse = nn.functional.mse_loss(z_pred, z_tgt)
@@ -70,4 +100,3 @@ def train_epoch(
         "var": float(np.mean(var_losses)) if var_losses else float("nan"),
         "cov": float(np.mean(cov_losses)) if cov_losses else float("nan"),
     }
-
