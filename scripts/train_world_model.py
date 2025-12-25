@@ -21,6 +21,7 @@ from celljepa.models.jepa import JEPA, JepaConfig
 from celljepa.models.world_model import WorldModel, WorldModelConfig
 from celljepa.train.transition_trainer import PairSet, energy_distance_torch
 from celljepa.eval.metrics import bootstrap_mean
+from celljepa.utils.attempt_log import append_attempt
 
 
 def _to_dense(x):
@@ -220,18 +221,16 @@ def evaluate_set_baselines(
             best_alpha = alpha
             best_W = W
 
-    proto_map = {(ctx, pid): (c, y) for ctx, pid, c, y in (train_proto + val_proto)}
-
     def eval_shift(shift_fn, rng_seed):
         rng = np.random.default_rng(rng_seed)
         per_pair = []
         skipped = 0
         for p in test_pairs:
-            proto = proto_map.get((p.context_id, p.perturbation_id))
-            if proto is None:
+            c = embeddings[p.control_indices]
+            if c.size == 0:
                 skipped += 1
                 continue
-            c, _ = proto
+            c = np.mean(c, axis=0)
             shift = shift_fn(p.perturbation_id, c)
             shift_t = torch.tensor(shift, dtype=torch.float32, device=device)
 
@@ -267,6 +266,170 @@ def evaluate_set_baselines(
     results["ridge"] = eval_shift(ridge_shift, seed + 3)
     results["ridge_alpha"] = best_alpha
     return results
+
+
+def build_baseline_shift_map(
+    baseline: str,
+    train_proto,
+    val_proto,
+    pairs,
+    embeddings,
+    ridge_alphas,
+):
+    if baseline == "none":
+        return {}, {}
+
+    meta = {}
+    if baseline == "no_change":
+        shift_map = {}
+        for p in pairs:
+            shift_map[(p.context_id, p.perturbation_id)] = np.zeros(embeddings.shape[1], dtype=np.float32)
+        return shift_map, meta
+
+    if not train_proto:
+        raise ValueError("No training pairs available for baseline residual.")
+
+    if baseline == "mean_shift":
+        shift_by_pert = _mean_shift_by_pert(train_proto)
+        shift_map = {}
+        for p in pairs:
+            c = embeddings[p.control_indices]
+            if c.size == 0:
+                continue
+            c = np.mean(c, axis=0)
+            shift = shift_by_pert.get(p.perturbation_id, np.zeros_like(c))
+            shift_map[(p.context_id, p.perturbation_id)] = shift
+        return shift_map, meta
+
+    if baseline == "ridge":
+        X_train = np.stack([c for _, _, c, _ in train_proto])
+        Y_train = np.stack([y for _, _, _, y in train_proto])
+        if val_proto:
+            X_val = np.stack([c for _, _, c, _ in val_proto])
+            Y_val = np.stack([y for _, _, _, y in val_proto])
+        else:
+            X_val = Y_val = None
+
+        best_alpha = ridge_alphas[0]
+        best_mse = float("inf")
+        best_W = None
+        for alpha in ridge_alphas:
+            W = _ridge_fit(X_train, Y_train, alpha)
+            if X_val is not None and X_val.size > 0:
+                pred = _ridge_predict(X_val, W)
+                mse = float(np.mean((pred - Y_val) ** 2))
+            else:
+                pred = _ridge_predict(X_train, W)
+                mse = float(np.mean((pred - Y_train) ** 2))
+            if mse < best_mse:
+                best_mse = mse
+                best_alpha = alpha
+                best_W = W
+
+        meta["ridge_alpha"] = best_alpha
+        shift_map = {}
+        for p in pairs:
+            c = embeddings[p.control_indices]
+            if c.size == 0:
+                continue
+            c = np.mean(c, axis=0)
+            pred = _ridge_predict(c[None, :], best_W)[0]
+            shift_map[(p.context_id, p.perturbation_id)] = pred - c
+        return shift_map, meta
+
+    raise ValueError(f"Unknown residual baseline: {baseline}")
+
+
+def train_world_model_residual(
+    model: WorldModel,
+    optimizer: torch.optim.Optimizer,
+    pairs: list[PairSet],
+    embeddings: np.ndarray,
+    pert_to_idx: dict[str, int],
+    baseline_shift_map: dict[tuple[str, str], np.ndarray],
+    device: str,
+    epochs: int,
+    sample_size: int,
+    seed: int,
+):
+    model.train()
+    losses = []
+    skipped = 0
+    rng = np.random.default_rng(seed)
+
+    for epoch in range(epochs):
+        rng.shuffle(pairs)
+        for pair in pairs:
+            shift = baseline_shift_map.get((pair.context_id, pair.perturbation_id))
+            if shift is None:
+                skipped += 1
+                continue
+            c_idx = pair.control_indices
+            p_idx = pair.pert_indices
+            if c_idx.size == 0 or p_idx.size == 0:
+                skipped += 1
+                continue
+            c_sel = rng.choice(c_idx, size=min(sample_size, c_idx.size), replace=False)
+            p_sel = rng.choice(p_idx, size=min(sample_size, p_idx.size), replace=False)
+
+            c = torch.tensor(embeddings[c_sel], dtype=torch.float32, device=device)
+            y = torch.tensor(embeddings[p_sel], dtype=torch.float32, device=device)
+            idx = torch.tensor([pert_to_idx.get(pair.perturbation_id, 0)], device=device, dtype=torch.long)
+            shift_t = torch.tensor(shift, dtype=torch.float32, device=device)
+            pred = c + shift_t + model(c, idx)
+            loss = energy_distance_torch(pred, y)
+
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+
+    return {"loss": float(np.mean(losses)) if losses else float("nan"), "skipped_train": skipped}
+
+
+def _compute_residual_edists(
+    model: WorldModel,
+    pairs: list[PairSet],
+    embeddings: np.ndarray,
+    pert_to_idx: dict[str, int],
+    baseline_shift_map: dict[tuple[str, str], np.ndarray],
+    device: str,
+    sample_size: int,
+    resamples: int,
+    seed: int,
+    alpha: float,
+):
+    rng = np.random.default_rng(seed)
+    per_pair = []
+    skipped = 0
+    model.eval()
+    for p in pairs:
+        shift = baseline_shift_map.get((p.context_id, p.perturbation_id))
+        if shift is None:
+            skipped += 1
+            continue
+        idx = torch.tensor([pert_to_idx.get(p.perturbation_id, 0)], device=device, dtype=torch.long)
+        shift_t = torch.tensor(shift, dtype=torch.float32, device=device)
+
+        def pred_fn(c):
+            with torch.no_grad():
+                return c + shift_t + alpha * model(c, idx)
+
+        edists = _resampled_edist(
+            p.control_indices,
+            p.pert_indices,
+            embeddings,
+            rng,
+            sample_size,
+            resamples,
+            device,
+            pred_fn,
+        )
+        if not edists:
+            skipped += 1
+            continue
+        per_pair.append(float(np.mean(edists)))
+    return per_pair, skipped
 
 
 def train_world_model(
@@ -366,6 +529,8 @@ def main() -> None:
     parser.add_argument("--max-cells-per-group", type=int, default=5000)
     parser.add_argument("--hidden-dim", type=int, default=512)
     parser.add_argument("--residual", action="store_true")
+    parser.add_argument("--residual-baseline", choices=["none", "no_change", "mean_shift", "ridge"], default="none")
+    parser.add_argument("--residual-alpha-grid", type=str, default="0,0.25,0.5,0.75,1.0")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--bootstrap-samples", type=int, default=1000)
     parser.add_argument("--bootstrap-seed", type=int, default=0)
@@ -383,6 +548,7 @@ def main() -> None:
 
     eval_sample_size = args.eval_sample_size or args.sample_size
     ridge_alphas = [float(x) for x in args.ridge_alphas.split(",") if x]
+    residual_alpha_grid = [float(x) for x in args.residual_alpha_grid.split(",") if x]
 
     adata = ad.read_h5ad(args.dataset)
     split = json.loads(Path(args.split).read_text())
@@ -434,11 +600,15 @@ def main() -> None:
     test_proto, skipped_test_proto = build_proto_pairs(test_pairs, embeddings)
 
     embed_dim = jepa_cfg.get("embed_dim", embeddings.shape[1])
+    residual_mode = args.residual
+    if args.residual_baseline != "none":
+        residual_mode = False
+
     cfg = WorldModelConfig(
         embed_dim=embed_dim,
         action_vocab=len(pert_to_idx),
         hidden_dim=args.hidden_dim,
-        residual=args.residual,
+        residual=residual_mode,
     )
 
     model = WorldModel(cfg).to(device)
@@ -471,31 +641,112 @@ def main() -> None:
         "jepa_config": jepa_cfg,
     }
 
-    metrics.update(
-        train_world_model(
+    if args.residual_baseline != "none":
+        all_pairs = train_pairs + val_pairs + test_pairs
+        baseline_shift_map, baseline_meta = build_baseline_shift_map(
+            args.residual_baseline,
+            train_proto,
+            val_proto,
+            all_pairs,
+            embeddings,
+            ridge_alphas,
+        )
+        metrics["residual"] = {
+            "baseline": args.residual_baseline,
+            "alpha_grid": residual_alpha_grid,
+            **baseline_meta,
+        }
+        metrics.update(
+            train_world_model_residual(
+                model,
+                opt,
+                train_pairs,
+                embeddings,
+                pert_to_idx,
+                baseline_shift_map,
+                device,
+                epochs=args.epochs,
+                sample_size=args.sample_size,
+                seed=args.seed,
+            )
+        )
+
+        tune_pairs = val_pairs if val_pairs else train_pairs
+        tuned_on = "val" if val_pairs else "train"
+        best_alpha = None
+        best_val = float("inf")
+        val_scores = {}
+        for alpha in residual_alpha_grid:
+            vals, _ = _compute_residual_edists(
+                model,
+                tune_pairs,
+                embeddings,
+                pert_to_idx,
+                baseline_shift_map,
+                device,
+                eval_sample_size,
+                args.eval_resamples,
+                args.seed + 13,
+                alpha,
+            )
+            mean_val = float(np.mean(vals)) if vals else float("nan")
+            val_scores[alpha] = mean_val
+            if np.isfinite(mean_val) and mean_val < best_val:
+                best_val = mean_val
+                best_alpha = alpha
+        if best_alpha is None:
+            best_alpha = 0.0
+            best_val = float("nan")
+        metrics["residual"]["alpha"] = best_alpha
+        metrics["residual"]["alpha_tuned_on"] = tuned_on
+        metrics["residual"]["val_edist"] = best_val
+        metrics["residual"]["val_scores"] = val_scores
+
+        per_pair, skipped = _compute_residual_edists(
             model,
-            opt,
-            train_pairs,
+            test_pairs,
+            embeddings,
+            pert_to_idx,
+            baseline_shift_map,
+            device,
+            eval_sample_size,
+            args.eval_resamples,
+            args.seed + 17,
+            best_alpha,
+        )
+        mean, ci, n_eval = _summarize(per_pair, args.bootstrap_samples, args.bootstrap_seed)
+        metrics["test"] = {
+            "edist_mean": mean,
+            "edist_ci95": ci,
+            "n_eval": n_eval,
+            "skipped_pairs": skipped,
+        }
+    else:
+        metrics.update(
+            train_world_model(
+                model,
+                opt,
+                train_pairs,
+                embeddings,
+                pert_to_idx,
+                device,
+                epochs=args.epochs,
+                sample_size=args.sample_size,
+                seed=args.seed,
+            )
+        )
+        metrics["test"] = eval_world_model(
+            model,
+            test_pairs,
             embeddings,
             pert_to_idx,
             device,
-            epochs=args.epochs,
-            sample_size=args.sample_size,
-            seed=args.seed,
+            eval_sample_size,
+            args.eval_resamples,
+            args.seed + 7,
+            args.bootstrap_samples,
+            args.bootstrap_seed,
         )
-    )
-    metrics["test"] = eval_world_model(
-        model,
-        test_pairs,
-        embeddings,
-        pert_to_idx,
-        device,
-        eval_sample_size,
-        args.eval_resamples,
-        args.seed + 7,
-        args.bootstrap_samples,
-        args.bootstrap_seed,
-    )
 
     if args.eval_baselines:
         metrics["baselines"] = evaluate_set_baselines(
@@ -515,6 +766,22 @@ def main() -> None:
     torch.save({"model": model.state_dict(), "pert_to_idx": pert_to_idx, "config": cfg.__dict__}, out_dir / "model.pt")
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print(f"Wrote metrics to {out_dir / 'metrics.json'}")
+    try:
+        append_attempt(
+            {
+                "script": "train_world_model",
+                "run_dir": str(out_dir),
+                "dataset_id": dataset_id,
+                "split_name": split_name,
+                "seed": args.seed,
+                "test": metrics.get("test"),
+                "baselines": metrics.get("baselines"),
+                "residual": metrics.get("residual"),
+                "world_model_config": metrics.get("world_model_config"),
+            }
+        )
+    except Exception as exc:
+        print(f"Attempt log skipped: {exc}")
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ import torch
 
 from celljepa.models.jepa import JEPA, JepaConfig
 from celljepa.train.jepa_trainer import TrainConfig, set_seed, train_epoch
+from celljepa.utils.attempt_log import append_attempt
 
 
 def _to_dense(x):
@@ -196,6 +197,23 @@ def main() -> None:
     )
 
     print(f"Saved checkpoint to {ckpt_path}")
+    try:
+        last = history[-1] if history else {}
+        append_attempt(
+            {
+                "script": "train_jepa",
+                "run_dir": str(out_dir),
+                "dataset": args.dataset,
+                "split": args.split,
+                "split_scope": args.split_scope,
+                "seed": args.seed,
+                "mask_type": args.mask_type,
+                "ema_decay": args.ema_decay,
+                "metrics": last,
+            }
+        )
+    except Exception as exc:
+        print(f"Attempt log skipped: {exc}")
 
 
 if __name__ == "__main__":

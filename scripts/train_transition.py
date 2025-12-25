@@ -21,6 +21,7 @@ from celljepa.models.jepa import JEPA, JepaConfig
 from celljepa.models.transition import PrototypePredictor, SetPredictor, TransitionConfig
 from celljepa.train.transition_trainer import PairProto, PairSet, train_prototype, train_set, energy_distance_torch
 from celljepa.eval.metrics import cosine_distance, bootstrap_mean
+from celljepa.utils.attempt_log import append_attempt
 
 
 def _to_dense(x):
@@ -817,6 +818,22 @@ def main() -> None:
 
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print(f"Wrote metrics to {out_dir / 'metrics.json'}")
+    try:
+        append_attempt(
+            {
+                "script": "train_transition",
+                "run_dir": str(out_dir),
+                "dataset_id": dataset_id,
+                "split_name": split_name,
+                "mode": args.mode,
+                "seed": args.seed,
+                "test": metrics.get("test"),
+                "baselines": metrics.get("baselines"),
+                "residual": metrics.get("residual"),
+            }
+        )
+    except Exception as exc:
+        print(f"Attempt log skipped: {exc}")
 
 
 if __name__ == "__main__":

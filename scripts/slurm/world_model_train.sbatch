@@ -24,6 +24,8 @@ MIN_CELLS_PER_CONDITION=${MIN_CELLS_PER_CONDITION:-30}
 MAX_CELLS_PER_GROUP=${MAX_CELLS_PER_GROUP:-5000}
 HIDDEN_DIM=${HIDDEN_DIM:-512}
 RESIDUAL=${RESIDUAL:-}
+RESIDUAL_BASELINE=${RESIDUAL_BASELINE:-none}
+RESIDUAL_ALPHA_GRID=${RESIDUAL_ALPHA_GRID:-0,0.25,0.5,0.75,1.0}
 SEED=${SEED:-0}
 EVAL_BASELINES=${EVAL_BASELINES:-}
 RIDGE_ALPHAS=${RIDGE_ALPHAS:-0.1,1.0,10.0,100.0}
@@ -45,7 +47,9 @@ CMD=(python3 scripts/train_world_model.py \
   --max-cells-per-group "$MAX_CELLS_PER_GROUP" \
   --hidden-dim "$HIDDEN_DIM" \
   --seed "$SEED" \
-  --ridge-alphas "$RIDGE_ALPHAS")
+  --ridge-alphas "$RIDGE_ALPHAS" \
+  --residual-baseline "$RESIDUAL_BASELINE" \
+  --residual-alpha-grid "$RESIDUAL_ALPHA_GRID")
 
 if [ -n "$EVAL_SAMPLE_SIZE" ]; then
   CMD+=(--eval-sample-size "$EVAL_SAMPLE_SIZE")

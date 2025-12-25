@@ -75,6 +75,8 @@ Instead, we evaluate:
 - **set-to-set similarity** between predicted and observed perturbed populations (distributional comparison)
 - optional: decoded outputs for DE signature agreement (secondary)
 
+We also log run summaries (timestamped JSONL) to `reports/attempts_log.jsonl` for tracking attempts across JEPA and transition models.
+
 ---
 
 ## Datasets
