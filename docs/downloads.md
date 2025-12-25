@@ -27,3 +27,10 @@ squeue -u $USER
 ```
 
 Or view logs under `logs/`.
+
+## JEPA Pretrain Jobs (M2)
+
+- Test: Sci-Plex3 GPU (`jepa_test_sciplex3`) → job `12833266`
+- Test: Replogle K562+RPE1 GPU (`jepa_test_replogle`) → job `12833267`
+- Full: Sci-Plex3 GPU (`jepa_full_sciplex3`) → job `12833268`
+- Full: Replogle K562+RPE1 GPU (`jepa_full_replogle`) → job `12833269`

@@ -32,7 +32,7 @@ Examples:
 
 We compare predicted embedding sets vs observed perturbed sets.
 
-Primary v1 recommendation: **energy distance (E-distance)** computed from samples in embedding space.
+Primary v1 metric (chosen): **energy distance (E-distance)** computed from samples in embedding space.
 
 Why: it’s a true metric on distributions under mild conditions and aligns naturally with set-valued single-cell readouts.
 

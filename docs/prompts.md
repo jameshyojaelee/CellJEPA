@@ -29,7 +29,7 @@ Use this checklist so a new Codex session can safely resume without redoing work
 Do **not** silently decide these in a new session; ask the user to confirm:
 
 1) **Dataset choice (M1):** which dataset to ingest first, where it comes from, and any access constraints (manual download, credentials, internal mirrors).
-2) **Primary set-distance metric (M3):** energy distance (E-distance) vs MMD (pick one as the primary objective/metric for v1).
+2) **Primary set-distance metric (M3):** **E-distance** chosen for v1 (2025-12-25).
 3) **Preprocessing scope (M1):** log1p-only vs HVGs vs other transforms; any batch correction is a separate, explicitly approved decision due to leakage risk.
 4) **Backbone choice (M2):** “simplest stable” implementation details (e.g., MLP/Transformer tokenization choices); confirm if we should match a specific prior architecture.
 5) **Module mask sources (M2/M3):** which gene set collections/regulon sources to use (versioned), if enabling module masks.
