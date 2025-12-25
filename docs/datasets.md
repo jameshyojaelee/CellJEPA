@@ -2,6 +2,9 @@
 
 This file tracks dataset selection for Stage A (core) and later stages.
 
+Decision gate:
+- Do not select the first “real dataset” autonomously; confirm with the user before starting Milestone M1.
+
 ## 1) Selection Rubric (Stage A)
 
 Score each candidate on:
@@ -19,19 +22,35 @@ Only after the harness is stable should we expand to 2–4 datasets.
 
 ## 3) Shortlist (fill in before M1)
 
-| dataset_id | perturbation type | contexts (donor/cell line) | modalities | notes |
-|---|---:|---:|---:|---|
-| TBD | TBD | TBD | RNA | first ingestion target |
-| TBD | TBD | TBD | RNA | second dataset (diverse regime) |
-| TBD | TBD | TBD | RNA | optional |
-| TBD | TBD | TBD | RNA | optional |
+Recommended sources (well-established, widely used):
+- **scPerturb (Nature Methods 2023)** provides harmonized `.h5ad` files for many canonical perturbation datasets (CRISPR + drug; RNA + some protein) and is the recommended *first stop* for Stage A/B ingestion.
+
+### Suggested Stage A candidates (real datasets)
+
+| dataset_id (proposed) | perturbation type | contexts (donor/cell line) | modalities | why it’s a strong default |
+|---|---|---|---|---|
+| `srivatsan_2020_sciplex3` | small molecules (drug) | 3 cell lines (A549, K562, MCF7) | RNA | very widely used drug perturbation dataset; supports context OOD; used in GeneJEPA |
+| `replogle_2022_k562_essential` (or `replogle_2022_*`) | genetic (CRISPRi) | K562 (+ RPE1 in some splits) | RNA | canonical Perturb-seq resource; strong gene-perturbation benchmark; widely reused |
+| `norman_2019` (NormanWeissman2019) | genetic (CRISPRi; includes combos) | single cell line | RNA | classic perturbation dataset used across many benchmarks; good early gene-perturbation baseline |
+| `openproblems_perturbation_prediction_pbmc_2023` | small molecules (drug) | 3 donors (PBMC) | RNA (benchmark targets) | standardized benchmark w/ official metrics + splits; strong “external” evaluation anchor |
+
+Notes:
+- Exact dataset IDs in our code will follow whatever naming the chosen downloader uses (e.g., scPerturb/pertpy filenames). The table above is for planning.
+- For M1 we pick **one** dataset to validate ingest → splits → baselines → report. After the harness is stable, expand to 2–4 datasets.
 
 ## 4) Multi-modal Target (Stage M5)
 
 Candidate:
-- Perturb-CITE-seq (RNA + protein)
+- Perturb-CITE-seq (RNA + protein; Frangieh et al. 2021)
+
+## 4.1 Pretraining corpora (optional; not required for M1)
+
+These are relevant for “world model” style pretraining but are not required to get Stage A working:
+- CELLxGENE Census (large general scRNA compendium)
+- Tahoe-100M (very large perturbation atlas; heavy download/compute)
+- Parse “10M PBMC cytokines” (very large cytokine perturbation dataset; license constraints apply)
 
 ## 5) Decision Log
 
 - 2025-12-25: created rubric and shortlist table; dataset IDs not yet finalized.
-
+- 2025-12-25: added recommended candidate datasets and noted that M1 dataset selection is a user-confirmed decision gate.

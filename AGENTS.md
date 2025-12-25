@@ -52,6 +52,15 @@ If verification isn’t possible, state what you would run and why.
 
 - System prompts/templates: `docs/SYSTEM_PROMPTS.md`
 - Mega-prompts for executing the plan: `docs/prompts.md`
+- HPC/Slurm execution context: `docs/HPC.md`
+
+## HPC / Slurm Defaults
+
+We primarily run experiments via **Slurm** on HPC.
+
+- Prefer `sbatch` for long training/eval jobs.
+- Default to **walltime > 24 hours** (recommended: `--time=60:00:00`) to avoid timeouts.
+- Ensure every job writes checkpoints + artifacts under `runs/<run_id>/…` and logs under `logs/`.
 
 ## References (what AGENTS.md is / how it’s used)
 

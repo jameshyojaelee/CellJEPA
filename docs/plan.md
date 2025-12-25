@@ -153,9 +153,9 @@ Initial v1 preprocessing target:
 Rules:
 - any statistics used by preprocessing that depend on the data distribution must be computed on the training fold only and saved per split.
 
-### 3.4 Perturbation metadata schema (portable across datasets)
+### 3.4 Action/perturbation metadata schema (portable across datasets)
 
-Define a canonical representation for perturbations:
+Define a canonical representation for actions (perturbations in v1):
 - `perturbation_tokens`: list of string tokens (e.g., `["gene:STAT1"]`, `["drug:dexamethasone"]`, combos as multiple tokens)
 - `dose`: numeric (optional; NaN if unknown)
 - `time_hours`: numeric (optional; NaN if unknown)
@@ -295,6 +295,15 @@ Repo conventions (to be enforced):
 - config-driven runs (`configs/`), deterministic split files, seeded training.
 - “Golden run” that completes on a small subset quickly.
 - avoid hidden state: no ad-hoc notebooks as the primary execution path.
+
+### HPC / Slurm execution context
+
+We develop and run CellJEPA primarily on an HPC cluster using Slurm. See `docs/HPC.md`.
+
+Defaults:
+- prefer `sbatch` for training/evaluation jobs
+- default walltime **> 24 hours** (recommended: `--time=48:00:00`) to avoid timeouts
+- write run artifacts to `runs/<run_id>/…` and logs to `logs/`
 
 ## 9) Risk Register + Mitigations
 

@@ -36,8 +36,8 @@ Recommended columns (when available):
 - `dose` (float)
 - `time_hours` (float)
 
-### 1.4 Perturbation tokens (for portable encoding)
-Store a per-cell representation of perturbations:
+### 1.4 Action/perturbation tokens (for portable encoding)
+Store a per-cell representation of actions (perturbations in v1):
 - `obs["perturbation_tokens"]`: a *deterministic* serialization of a token list.
   - Example encoding: `gene:STAT1|gene:IRF9` for a 2-gene combo; a single token for non-combos.
   - If control: use a canonical token like `control:CTRL`.

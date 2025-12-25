@@ -8,9 +8,39 @@ Guidance:
 - Always follow `AGENTS.md`.
 - Keep APIs general for state transitions; perturbations are the v1 action type and primary evaluation regime.
 
+Execution context:
+- We primarily develop/run on HPC using **Slurm**. See `docs/HPC.md`.
+- For any run that may take more than a few minutes, prefer generating an `sbatch` script.
+- Default to **walltime > 24 hours** (recommended: `--time=48:00:00`) to avoid timeouts.
+
+## Status Tracker (update this as you go)
+
+Use this checklist so a new Codex session can safely resume without redoing work.
+
+- [x] **M0** Contracts + split skeleton (completed 2025-12-25; artifacts: `scripts/make_toy_dataset.py`, `scripts/make_splits.py`, `runs/m0_splits/`)
+- [ ] **M1** Ingest 1 real dataset + baselines + golden report
+- [ ] **M2** JEPA pretraining + embedding export + diagnostics
+- [ ] **M3** Transition predictor (prototype + set-level) + ablations
+- [ ] **M4** Multi-dataset + cross-dataset holdout
+- [ ] **M5** (Stretch) Multi-modal RNA+protein
+
+## Decision Gates (ask the user before proceeding)
+
+Do **not** silently decide these in a new session; ask the user to confirm:
+
+1) **Dataset choice (M1):** which dataset to ingest first, where it comes from, and any access constraints (manual download, credentials, internal mirrors).
+2) **Primary set-distance metric (M3):** energy distance (E-distance) vs MMD (pick one as the primary objective/metric for v1).
+3) **Preprocessing scope (M1):** log1p-only vs HVGs vs other transforms; any batch correction is a separate, explicitly approved decision due to leakage risk.
+4) **Backbone choice (M2):** “simplest stable” implementation details (e.g., MLP/Transformer tokenization choices); confirm if we should match a specific prior architecture.
+5) **Module mask sources (M2/M3):** which gene set collections/regulon sources to use (versioned), if enabling module masks.
+6) **Cross-dataset gene harmonization (M4):** intersection vs “foundation set” definition; this affects comparability.
+7) **New runtime dependencies:** always ask before adding.
+
 ---
 
 ## Prompt M0 — Contracts + Split Generator Skeleton
+
+Status label: ✅ DONE (2025-12-25)
 
 ```text
 You are working in the `CellJEPA` repository.
@@ -58,6 +88,8 @@ Output:
 
 ## Prompt M1 — Ingest One Real Dataset + Baseline Harness + Golden Report
 
+Status label: ⬜ NOT STARTED
+
 ```text
 You are working in the `CellJEPA` repository.
 
@@ -75,6 +107,7 @@ Read and obey:
 Before coding:
 1) Identify the exact dataset to ingest (fill in `docs/datasets.md` with the chosen `dataset_id` and notes).
 2) Confirm what format/source is expected (if not specified, ask a targeted question).
+3) Confirm preprocessing scope (default: libnorm→log1p only; no batch correction) and stop if the user wants something else.
 
 Deliverables (required):
 1) Implement ingestion for the chosen dataset under `src/celljepa/data/`:
@@ -113,6 +146,8 @@ Output:
 ---
 
 ## Prompt M2 — Implement Cell-Level JEPA Pretraining (Stable, With Diagnostics)
+
+Status label: ⬜ NOT STARTED
 
 ```text
 You are working in the `CellJEPA` repository.
@@ -159,6 +194,8 @@ Output:
 
 ## Prompt M3 — Perturbation Transition Predictor (Prototype → Set-Level)
 
+Status label: ⬜ NOT STARTED
+
 ```text
 You are working in the `CellJEPA` repository.
 
@@ -193,6 +230,9 @@ Constraints:
 - No OT pseudo-pairing in v1 unless explicitly gated in as stretch.
 - Avoid strawman baselines; use the baseline tuning protocol.
 
+Decision gate:
+- Before implementing set-level objectives, confirm the primary set-distance metric with the user (E-distance vs MMD) and document it in `docs/metrics.md`.
+
 Verification (must run):
 - `python3 -m compileall src`
 - One full run on S1 and S2 splits producing a report.
@@ -205,6 +245,8 @@ Output:
 ---
 
 ## Prompt M4 — Multi-Dataset + Cross-Dataset Holdout
+
+Status label: ⬜ NOT STARTED
 
 ```text
 You are working in the `CellJEPA` repository.
@@ -243,6 +285,8 @@ Output:
 ---
 
 ## Prompt M5 (Stretch) — Multi-Modal RNA+Protein
+
+Status label: ⬜ NOT STARTED
 
 ```text
 You are working in the `CellJEPA` repository.

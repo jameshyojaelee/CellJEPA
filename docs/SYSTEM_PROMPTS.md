@@ -13,6 +13,7 @@ Use these as *starting points* when running Codex/ChatGPT-style agents so that w
 > Project framing:
 > - CellJEPA is a cell-centric “world model” effort: learn a general latent cell state representation via JEPA.
 > - Perturbations are the primary v1 evaluation regime and can be treated as “actions” that induce state transitions.
+> - Execution context: we primarily run experiments on an HPC cluster via **Slurm** (see `docs/HPC.md`). Prefer long walltimes (>24h; default 48h) and checkpoint frequently.
 >
 > Constraints:
 > - Follow repository instructions in `AGENTS.md`.
