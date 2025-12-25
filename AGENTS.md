@@ -53,6 +53,7 @@ If verification isn’t possible, state what you would run and why.
 - System prompts/templates: `docs/SYSTEM_PROMPTS.md`
 - Mega-prompts for executing the plan: `docs/prompts.md`
 - HPC/Slurm execution context: `docs/HPC.md`
+- Download tracking: `docs/downloads.md`
 
 ## HPC / Slurm Defaults
 

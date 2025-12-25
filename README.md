@@ -14,6 +14,7 @@ Start here:
 - Project plan: `docs/plan.md`
 - Critique of the original draft plan: `docs/plan_critique.md`
 - HPC/Slurm notes (how we run long jobs): `docs/HPC.md`
+- Download status (jobs + manifests): `docs/downloads.md`
 
 Repo layout (high-level):
 - `src/celljepa/`: library code

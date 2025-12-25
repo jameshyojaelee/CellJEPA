@@ -38,19 +38,27 @@ Notes:
 - Exact dataset IDs in our code will follow whatever naming the chosen downloader uses (e.g., scPerturb/pertpy filenames). The table above is for planning.
 - For M1 we pick **one** dataset to validate ingest → splits → baselines → report. After the harness is stable, expand to 2–4 datasets.
 
+## 3.1 Chosen for M1 (user-confirmed)
+
+These are the initial datasets for M1 ingestion + baseline harness:
+
+- **scPerturb v1.4 (Zenodo 13350497)** — harmonized `.h5ad` files (includes Sci-Plex2/3/4).
+- **Sci-Plex (Srivatsan 2020)** — drug perturbation across 3 cell lines. We will use the scPerturb-curated Sci-Plex `.h5ad` files for M1; raw source downloads can follow if needed.
+
 ## 4) Multi-modal Target (Stage M5)
 
 Candidate:
-- Perturb-CITE-seq (RNA + protein; Frangieh et al. 2021)
+- Perturb-CITE-seq (RNA + protein; Frangieh et al. 2021) — **selected for M5**
 
 ## 4.1 Pretraining corpora (optional; not required for M1)
 
 These are relevant for “world model” style pretraining but are not required to get Stage A working:
 - CELLxGENE Census (large general scRNA compendium)
-- Tahoe-100M (very large perturbation atlas; heavy download/compute)
+- Tahoe-100M (very large perturbation atlas; heavy download/compute) — **selected for later validation**
 - Parse “10M PBMC cytokines” (very large cytokine perturbation dataset; license constraints apply)
 
 ## 5) Decision Log
 
 - 2025-12-25: created rubric and shortlist table; dataset IDs not yet finalized.
 - 2025-12-25: added recommended candidate datasets and noted that M1 dataset selection is a user-confirmed decision gate.
+- 2025-12-25: selected scPerturb + Sci-Plex for M1; Tahoe-100M for later validation; Perturb-CITE-seq for M5.
