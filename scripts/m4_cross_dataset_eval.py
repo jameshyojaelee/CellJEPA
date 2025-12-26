@@ -94,15 +94,21 @@ def main() -> None:
     test_ids = split["test_datasets"]
     dataset_paths = split["dataset_paths"]
 
-    if len(train_ids) != 1 or len(test_ids) != 1:
-        raise ValueError("This minimal runner expects exactly one train and one test dataset.")
+    if len(test_ids) != 1:
+        raise ValueError("This minimal runner expects exactly one test dataset.")
 
-    train_path = Path(dataset_paths[train_ids[0]])
     test_path = Path(dataset_paths[test_ids[0]])
-
-    ad_train = ad.read_h5ad(train_path)
     ad_test = ad.read_h5ad(test_path)
 
+    # Concatenate train datasets if multiple are provided.
+    train_adatas = []
+    for did in train_ids:
+        train_path = Path(dataset_paths[did])
+        train_adatas.append(ad.read_h5ad(train_path))
+    if len(train_adatas) == 1:
+        ad_train = train_adatas[0]
+    else:
+        ad_train = ad.concat(train_adatas, join="inner", label="dataset_id", keys=train_ids)
     # Build pairs within each dataset
     train_pairs = build_pairs(ad_train, max_cells_per_group=args.max_cells_per_group, seed=args.seed)
     test_pairs = build_pairs(ad_test, max_cells_per_group=args.max_cells_per_group, seed=args.seed)
