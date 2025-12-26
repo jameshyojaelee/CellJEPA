@@ -574,7 +574,14 @@ def main() -> None:
 
     adata = ad.read_h5ad(args.dataset)
     split = json.loads(Path(args.split).read_text())
-    group_key = split["group_key"]
+    group_key = split.get("group_key")
+    if not group_key:
+        # Cross-dataset splits use dataset holdout lists.
+        if "train_datasets" in split and "test_datasets" in split:
+            raise ValueError(
+                "Cross-dataset split detected. Use a cross-dataset runner, not scripts/train_transition.py."
+            )
+        raise KeyError("group_key missing from split JSON")
     dataset_id = split.get("dataset_id") or adata.uns.get("dataset_id") or Path(args.dataset).stem
     split_name = split.get("split_name") or Path(args.split).stem
 
