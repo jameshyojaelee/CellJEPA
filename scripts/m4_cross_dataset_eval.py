@@ -26,6 +26,7 @@ import torch
 from celljepa.models.jepa import JEPA, JepaConfig
 from celljepa.models.transition import SetPredictor, TransitionConfig
 from celljepa.train.transition_trainer import PairSet, train_set
+from celljepa.train.transition_trainer import energy_distance_torch
 from celljepa.eval.metrics import bootstrap_mean
 import importlib.util
 
@@ -84,6 +85,8 @@ def main() -> None:
     parser.add_argument("--bootstrap-samples", type=int, default=1000)
     parser.add_argument("--bootstrap-seed", type=int, default=0)
     parser.add_argument("--eval-baselines", action="store_true")
+    parser.add_argument("--effect-top-frac", type=float, default=0.0, help="Filter test pairs to top fraction by effect size.")
+    parser.add_argument("--effect-seed", type=int, default=0)
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -140,6 +143,29 @@ def main() -> None:
         p.control_indices = np.array([idx_map_test[i] for i in p.control_indices if i in idx_map_test], dtype=np.int64)
         p.pert_indices = np.array([idx_map_test[i] for i in p.pert_indices if i in idx_map_test], dtype=np.int64)
 
+    def effect_scores(pairs, embeddings, sample_size, resamples, device, seed):
+        rng = np.random.default_rng(seed)
+        scores = []
+        for p in pairs:
+            c_idx = p.control_indices
+            t_idx = p.pert_indices
+            n = min(sample_size, c_idx.size, t_idx.size)
+            if n <= 0:
+                scores.append(float("nan"))
+                continue
+            vals = []
+            for _ in range(resamples):
+                c_sel = rng.choice(c_idx, size=n, replace=False)
+                t_sel = rng.choice(t_idx, size=n, replace=False)
+                c = torch.tensor(embeddings[c_sel], dtype=torch.float32, device=device)
+                y = torch.tensor(embeddings[t_sel], dtype=torch.float32, device=device)
+                if not torch.isfinite(c).all() or not torch.isfinite(y).all():
+                    continue
+                dist = energy_distance_torch(c, y)
+                vals.append(float(dist.detach().cpu().numpy()))
+            scores.append(float(np.mean(vals)) if vals else float("nan"))
+        return scores
+
     cfg = TransitionConfig(embed_dim=emb_train.shape[1], perturbation_vocab=len(pert_to_idx))
     model = SetPredictor(cfg).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
@@ -166,6 +192,20 @@ def main() -> None:
     )
 
     eval_sample_size = args.eval_sample_size or args.sample_size
+    if args.effect_top_frac and args.effect_top_frac > 0:
+        scores = effect_scores(test_pairs, emb_test, eval_sample_size, args.eval_resamples, device, args.effect_seed)
+        scored = [(p, s) for p, s in zip(test_pairs, scores) if np.isfinite(s)]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        k = max(1, int(len(scored) * args.effect_top_frac))
+        test_pairs = [p for p, _ in scored[:k]]
+        kept_scores = [s for _, s in scored[:k]]
+        metrics["effect_filter"] = {
+            "top_frac": args.effect_top_frac,
+            "n_before": len(scores),
+            "n_after": len(test_pairs),
+            "mean_effect": float(np.mean(kept_scores)) if kept_scores else float("nan"),
+        }
+
     metrics["test"] = eval_set_model(
         model,
         test_pairs,
@@ -183,7 +223,7 @@ def main() -> None:
         train_proto, _ = build_proto_pairs(train_pairs, emb_train)
         val_proto = []
         test_proto, _ = build_proto_pairs(test_pairs, emb_test)
-        test_proto_map = {(p[0], p[1]): p for p in test_proto}
+        test_proto_map = {(p.context_id, p.perturbation_id): p for p in test_proto}
         metrics["baselines"] = evaluate_set_baselines(
             train_proto,
             val_proto,

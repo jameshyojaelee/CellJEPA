@@ -23,6 +23,8 @@ MIN_CELLS_PER_CONDITION=${MIN_CELLS_PER_CONDITION:-30}
 MAX_CELLS_PER_GROUP=${MAX_CELLS_PER_GROUP:-5000}
 SEED=${SEED:-0}
 EVAL_BASELINES=${EVAL_BASELINES:-}
+EFFECT_TOP_FRAC=${EFFECT_TOP_FRAC:-0}
+EFFECT_SEED=${EFFECT_SEED:-0}
 
 cd /gpfs/commons/home/jameslee/CellJEPA
 export PYTHONUNBUFFERED=1
@@ -38,7 +40,9 @@ CMD=(python3 scripts/m4_cross_dataset_eval.py \
   --bootstrap-seed "$BOOTSTRAP_SEED" \
   --min-cells-per-condition "$MIN_CELLS_PER_CONDITION" \
   --max-cells-per-group "$MAX_CELLS_PER_GROUP" \
-  --seed "$SEED")
+  --seed "$SEED" \
+  --effect-top-frac "$EFFECT_TOP_FRAC" \
+  --effect-seed "$EFFECT_SEED")
 
 if [ -n "$EVAL_SAMPLE_SIZE" ]; then
   CMD+=(--eval-sample-size "$EVAL_SAMPLE_SIZE")
