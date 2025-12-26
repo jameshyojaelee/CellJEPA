@@ -27,13 +27,23 @@ from celljepa.models.jepa import JEPA, JepaConfig
 from celljepa.models.transition import SetPredictor, TransitionConfig
 from celljepa.train.transition_trainer import PairSet, train_set
 from celljepa.eval.metrics import bootstrap_mean
-from scripts.train_transition import (
-    build_pairs,
-    split_pairs,
-    build_proto_pairs,
-    evaluate_set_baselines,
-    eval_set_model,
-)
+import importlib.util
+
+
+def _load_transition_helpers():
+    path = ROOT / "scripts" / "train_transition.py"
+    spec = importlib.util.spec_from_file_location("train_transition_helpers", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+    return mod
+
+
+_helpers = _load_transition_helpers()
+build_pairs = _helpers.build_pairs
+split_pairs = _helpers.split_pairs
+build_proto_pairs = _helpers.build_proto_pairs
+evaluate_set_baselines = _helpers.evaluate_set_baselines
+eval_set_model = _helpers.eval_set_model
 
 
 def embed_cells(adata, checkpoint_path: Path, indices: np.ndarray, batch_size: int = 512, device: str = "cpu"):
