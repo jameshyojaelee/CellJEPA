@@ -1,6 +1,6 @@
 # CellJEPA
 
-CellJEPA investigates **Joint-Embedding Predictive Architectures (JEPAs)** for **single-cell omics**, with a v1 focus on **perturbation response prediction under out-of-distribution (OOD) shift**.
+CellJEPA investigates **Joint-Embedding Predictive Architectures (JEPAs)** for **single-cell omics**, with a v1 focus on **perturbation response prediction that generalizes to new experimental settings** (e.g., unseen cell types, perturbations, donors, or labs).
 
 This repo is intentionally **benchmark-driven**: the goal is to make a credible case for when JEPA-style learning is (or is not) practical and useful in omics.
 
@@ -33,11 +33,11 @@ We treat perturbations as **actions** and learn how actions move cells through l
 ## Why JEPA (vs. GenAI/LLMs/diffusion/AlphaFold)
 
 CellJEPA is explicitly **not** trying to be a “generative model of single-cell counts” first.
-Instead, it treats the transcriptome as a noisy, high-dimensional measurement of an underlying cell state and focuses on learning a stable latent representation that supports downstream prediction under distribution shift.
+Instead, it treats the transcriptome as a noisy, high-dimensional measurement of an underlying cell state and focuses on learning a stable latent representation that supports downstream prediction when test settings differ from training settings.
 
 High-level contrasts:
 - **JEPA vs. generative models (LLMs/diffusion):** generative objectives optimize for modeling the observation distribution; JEPA optimizes for **predictive representations** (no requirement to decode/reconstruct every observed detail).
-- **JEPA vs. AlphaFold-style prediction:** AlphaFold predicts protein structure with strong supervision and inductive biases for a largely “static” object; CellJEPA targets **cell-state transitions under interventions**, where the state is latent, context-dependent, and evaluated via OOD generalization.
+- **JEPA vs. AlphaFold-style prediction:** AlphaFold predicts protein structure with strong supervision and inductive biases for a largely “static” object; CellJEPA targets **cell-state transitions under interventions**, where the state is latent, context-dependent, and evaluated via generalization to novel conditions.
 
 ---
 
@@ -53,7 +53,7 @@ High-level contrasts:
 ## What CellJEPA v1 aims to test
 
 ### Primary thesis (testable)
-We test whether JEPA-trained embeddings are a better substrate for perturbation prediction in OOD regimes than:
+We test whether JEPA-trained embeddings are a better substrate for perturbation prediction in challenging generalization settings than:
 - reconstruction-focused objectives (e.g., masked reconstruction),
 - and standard perturbation predictors, when evaluated with strong baselines.
 
@@ -61,7 +61,7 @@ We test whether JEPA-trained embeddings are a better substrate for perturbation 
 - A JEPA training pipeline for scRNA (and later RNA+protein)
 - A perturbation transition model that predicts post-perturbation latent state
 - A reproducible benchmarking harness with:
-  - strict OOD splits,
+  - strict splits that hold out entire conditions (not just random cells),
   - leakage guardrails,
   - and deliberately simple baselines included by default
 
@@ -93,7 +93,7 @@ v1 focuses on harmonized public perturbation datasets and multi-modal perturbati
 
 ### v1 (core)
 1. JEPA pretraining for transcriptomics with explicit masking policies
-2. Perturbation prediction in latent space under OOD splits
+2. Perturbation prediction in latent space under held-out condition splits
 3. Extensive ablations (masking strategy, teacher/EMA, anti-collapse regularization, backbone choice)
 4. Benchmark report: where JEPA wins, where it fails, and why
 
@@ -110,7 +110,7 @@ v1 focuses on harmonized public perturbation datasets and multi-modal perturbati
 - Omics does not have a natural patch topology like images, making masking policy critical.
 - JEPA-style objectives can collapse or learn shortcuts without strong stability constraints.
 - Perturbation prediction often requires distribution-level evaluation because cells are not paired pre/post.
-- Strong baselines are hard to beat; results must be OOD-first and compute-aware.
+- Strong baselines are hard to beat; results must be generalization-first and compute-aware.
 
 We treat negative results as informative, as long as they are well-controlled.
 
