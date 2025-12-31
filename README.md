@@ -75,6 +75,11 @@ Instead, we evaluate:
 - **set-to-set similarity** between predicted and observed perturbed populations (distributional comparison)
 - optional: decoded outputs for DE signature agreement (secondary)
 
+**Cross-dataset note (M4-v2):**
+Cross-dataset holdouts can silently conflate **domain shift** with **unseen-action** evaluation when perturbation vocabularies differ across studies.
+For v1, the main cross-dataset tables are defined on **shared actions only**, with **control-based embedding z-score calibration enabled by default**, and transition heads must include a **no-change fallback** to avoid catastrophic OOD blow-ups.
+See `reports/m4_drug_cross_dataset_split_recommendation.md`.
+
 We also log run summaries (timestamped JSONL) to `reports/attempts_log.jsonl` for tracking attempts across JEPA and transition models.
 
 ---

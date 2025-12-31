@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,7 +77,7 @@ def embed_cells(adata, checkpoint_path: Path, indices: np.ndarray, batch_size: i
 
 def _parse_alpha_grid(text: str) -> list[float]:
     out: list[float] = []
-    for item in text.split(","):
+    for item in re.split(r"[,\s:]+", text):
         item = item.strip()
         if not item:
             continue
@@ -170,7 +171,8 @@ def main() -> None:
         action="store_true",
         help="Disable control-based embedding z-scoring (enabled by default in M4-v2).",
     )
-    parser.add_argument("--alpha-grid", type=str, default="0,0.25,0.5,0.75,1.0")
+    # Note: avoid comma-separated defaults in Slurm --export (commas are separators there).
+    parser.add_argument("--alpha-grid", type=str, default="0:0.25:0.5:0.75:1.0")
     parser.add_argument("--alpha-val-frac", type=float, default=0.2)
     parser.add_argument("--max-delta-norm", type=float, default=None)
     parser.add_argument("--effect-top-frac", type=float, default=0.0, help="Filter test pairs to top fraction by effect size.")
