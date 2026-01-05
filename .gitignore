@@ -22,7 +22,6 @@ ENV/
 runs/
 logs/
 configs/download/
-docs/
 
 # Data (never commit raw/processed datasets)
 data/
@@ -30,9 +29,3 @@ configs/modules
 
 AGENTS.md
 docs/*.pdf
-docs/PROJECT_STATE.md
-docs/DECISIONS.md
-docs/downloads.md
-docs/HPC.md
-docs/intial_plan.md
-docs/initial_plan.md
