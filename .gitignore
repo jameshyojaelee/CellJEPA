@@ -21,6 +21,7 @@ ENV/
 # Project outputs
 runs/
 logs/
+tmp/
 configs/download/
 
 # Data (never commit raw/processed datasets)

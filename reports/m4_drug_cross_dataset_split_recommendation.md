@@ -107,6 +107,5 @@ Notes:
 
 If we cannot identify a drug dataset pair with meaningful shared-action overlap:
 - Treat *drug cross-dataset* as **out of scope for M4-v2** (for now).
-- Keep drug evaluation focused on **within-dataset** OOD (e.g., Sci‑Plex3 S2 unseen cell line).
+- Keep drug evaluation focused on **within-dataset** holdout splits (e.g., Sci‑Plex3 S2 unseen cell line).
 - Use cross-dataset evaluation primarily for genetic datasets where shared-action overlap can be made non-trivial (or ingest additional genetic datasets with higher overlap).
-

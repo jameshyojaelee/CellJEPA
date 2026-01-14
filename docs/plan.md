@@ -4,10 +4,12 @@ Date: 2026-01-05
 Status: v4 (phase roadmap + repo hygiene)  
 Canonical goal: Build a **cell-centric world model** for single-cell omics where JEPA learns a general **latent cell state representation**; evaluate primarily on **perturbation-driven state transitions** (perturbation prediction) in v1.
 
+Operational details (data contract, splits, metrics, HPC defaults) live in `docs/runbook.md`.
+
 ## 0) One-Page Summary
 
 ### Core thesis (testable)
-Learning a JEPA-style representation of cell state and predicting **post-perturbation state in embedding space** yields **better OOD generalization** and **more stable/usable** perturbation prediction than objectives centered on reconstructing noisy measurements.
+Learning a JEPA-style representation of cell state and predicting **post-perturbation state in embedding space** yields **better generalization under distribution shift** and **more stable/usable** perturbation prediction than objectives centered on reconstructing noisy measurements.
 
 ### Project framing (what “CellJEPA” means)
 - a cell-centric “world model”: the cell’s latent state is the primary object
@@ -18,7 +20,7 @@ Learning a JEPA-style representation of cell state and predicting **post-perturb
 ### Product deliverable (what exists at the end)
 1. A reproducible **benchmark harness** that:
    - downloads/prepares a curated subset of perturbation datasets,
-   - generates split files (OOD protocols),
+   - generates split files (holdout protocols),
    - trains simple + strong baselines,
    - trains CellJEPA models,
    - produces a fixed report with tables/plots and machine-readable metrics.
@@ -40,6 +42,7 @@ These are *defaults*, not permanent commitments. We start here to avoid paralysi
 
 - **Stage A main-table splits:** `S1_unseen_perturbation` and `S2_unseen_context` (defined in §4).
 - **v1 preprocessing:** library-size normalize → log1p; no batch correction.
+- **v1 primary set metric:** energy distance (E-distance) over embedding sets (see §7).
 - **JEPA backbone (Stage A):** choose the simplest stable implementation first, then ablate alternatives later.
 
 ## 1) Definitions (so experiments are unambiguous)
@@ -95,7 +98,7 @@ Gate:
 
 ### Phase 4 — Cross-dataset done right (shared-action only)
 Deliverables:
-- Ingest at least one **drug dataset pair** with meaningful action overlap; enforce overlap at split creation.
+- Ingest at least one dataset pair with meaningful action overlap; enforce overlap at split creation.
 - Keep main cross-dataset tables **shared-action only**; unseen-action results are diagnostic.
 - Evaluate with safety head + calibration and report pair counts after filtering.
 
@@ -118,6 +121,7 @@ Score each candidate on:
 - availability of controls matched by context,
 - metadata completeness (perturbation ID, dose, time, donor/cell line),
 - size (enough cells per condition for set metrics),
+- cross-dataset compatibility (gene IDs, annotation quality),
 - minimal licensing / access friction.
 
 ### 3.2 Data contract (implementation requirement)
@@ -158,7 +162,7 @@ Default encoding strategy:
 - token embedding lookup summed/pooled across tokens,
 - numeric features (dose/time) passed through a small MLP and concatenated.
 
-## 4) Split Protocols (OOD-first, enforced as code)
+## 4) Split Protocols (holdout-first, enforced as code)
 
 We define splits at the **condition level** (and optionally at the context level), then sample cells within condition/context groups.
 
@@ -166,13 +170,13 @@ We define splits at the **condition level** (and optionally at the context level
 
 We standardize around two split families. Each split produces deterministic `train/val/test` condition lists and per-cell indices.
 
-**S1 — Unseen perturbation (condition OOD)**  
+**S1 — Unseen perturbation (perturbation holdout)**  
 Goal: generalize to perturbations not seen during training.
 - Split key: `perturbation_id`
 - Grouping rule: all cells with the same `perturbation_id` are assigned to the same fold.
 - Context handling: contexts are allowed to appear in both train and test, but perturbations are disjoint.
 
-**S2 — Unseen context (context OOD)**  
+**S2 — Unseen context (context holdout)**  
 Goal: generalize to new donors/cell lines (or other context definition).
 - Split key: `context_id`
 - Grouping rule: all cells with the same `context_id` are assigned to the same fold.
@@ -186,7 +190,7 @@ Defaults:
 Hold out entire dataset(s) after harmonizing to a shared gene set (e.g., intersection or a documented “foundation set”).
 
 Critical note (learned from initial M4 runs):
-- Cross-dataset holdout mixes **domain shift** *and* often **action/perturbation OOD** (very low overlap between perturbation vocabularies across studies).
+- Cross-dataset holdout mixes **domain shift** *and* often **action/perturbation vocabulary shift** (very low overlap between perturbation vocabularies across studies).
 - Therefore, every cross-dataset report must include:
   - action/perturbation overlap: `|A_train ∩ A_test|`, overlap fraction(s),
   - evaluation pair counts stratified by **shared-action** vs `<UNK>`/unseen-action.
@@ -237,7 +241,7 @@ v1: Set-level predictor:
 - input: a set of control embeddings + perturbation metadata,
 - output: predicted perturbed embeddings (deterministic mapping first).
 
-Safety-by-construction (required for OOD and cross-dataset):
+Safety-by-construction (required for holdout splits and cross-dataset):
 - Prefer a **residual, shrinkage-parameterized** predictor:
   - `z_hat = z_ctrl + α · Δ(z_ctrl, a)` with `α ∈ [0, 1]` (grid-tuned on validation or learned with explicit regularization),
   - include `α=0` as an explicit no-change fallback,
@@ -286,7 +290,8 @@ Suggested default tuning budgets (Stage A):
 ### 7.1 Primary metrics (embedding-native)
 - prototype error: cosine distance / MSE between predicted and observed prototypes,
 - retrieval: kNN accuracy / mean reciprocal rank for retrieving the correct perturbation condition,
-- set distance: pick one primary (energy distance / MMD / sliced Wasserstein) with justification.
+- set distance (primary v1): **energy distance (E-distance)** over embedding sets.
+  - Acceptable alternatives (explicitly justified): MMD / sliced Wasserstein.
 
 ### 7.2 Secondary (if/when decoding is added)
 - DE correlation, pathway enrichment agreement, calibration for stochastic predictors.
@@ -319,7 +324,7 @@ Repo conventions (to be enforced):
 
 ### HPC / Slurm execution context
 
-We develop and run CellJEPA primarily on an HPC cluster using Slurm. See `docs/HPC.md`.
+We develop and run CellJEPA primarily on an HPC cluster using Slurm. See `docs/runbook.md`.
 
 Defaults:
 - prefer `sbatch` for training/evaluation jobs
@@ -329,9 +334,9 @@ Defaults:
 ## 9) Risk Register + Mitigations
 
 - **Collapse / shortcut learning:** log collapse metrics; enforce anti-collapse; add module masks; sanity-check against library-size predictors.
-- **No wins vs linear baselines:** treat as an outcome; focus on characterizing *where* JEPA helps (OOD axes) and possibly pivot to condition-level JEPA or better masking.
+- **No wins vs linear baselines:** treat as an outcome; focus on characterizing *where* JEPA helps (generalization axes) and possibly pivot to condition-level JEPA or better masking.
 - **Cross-dataset evaluation is misleading by default:** low perturbation overlap turns “domain shift” into “unseen-action + domain shift”; always report overlap and stratify seen vs `<UNK>`.
-- **Catastrophic OOD blow-ups:** require residual + α-gating (including α=0 fallback) and bounded updates; treat “α→0” as an honest outcome, not a failure of reporting.
+- **Catastrophic distribution-shift blow-ups:** require residual + α-gating (including α=0 fallback) and bounded updates; treat “α→0” as an honest outcome, not a failure of reporting.
 - **Evaluation unconvincing:** ensure at least one downstream task (retrieval/ranking) is a primary result.
 - **Engineering sprawl:** strict milestone gates; optional branches only after M3 success.
 

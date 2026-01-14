@@ -29,7 +29,7 @@ Recommended sources (well-established, widely used):
 
 | dataset_id (proposed) | perturbation type | contexts (donor/cell line) | modalities | why it’s a strong default |
 |---|---|---|---|---|
-| `srivatsan_2020_sciplex3` | small molecules (drug) | 3 cell lines (A549, K562, MCF7) | RNA | very widely used drug perturbation dataset; supports context OOD; used in GeneJEPA |
+| `srivatsan_2020_sciplex3` | small molecules (drug) | 3 cell lines (A549, K562, MCF7) | RNA | very widely used drug perturbation dataset; supports unseen-context split; used in GeneJEPA |
 | `replogle_2022_k562_essential` (or `replogle_2022_*`) | genetic (CRISPRi) | K562 (+ RPE1 in some splits) | RNA | canonical Perturb-seq resource; strong gene-perturbation benchmark; widely reused |
 | `norman_2019` (NormanWeissman2019) | genetic (CRISPRi; includes combos) | single cell line | RNA | classic perturbation dataset used across many benchmarks; good early gene-perturbation baseline |
 | `openproblems_perturbation_prediction_pbmc_2023` | small molecules (drug) | 3 donors (PBMC) | RNA (benchmark targets) | standardized benchmark w/ official metrics + splits; strong “external” evaluation anchor |
@@ -45,7 +45,7 @@ These are the initial datasets for M1 ingestion + baseline harness:
 - **scPerturb v1.4 (Zenodo 13350497)** — harmonized `.h5ad` files (includes Sci-Plex2/3/4).
 - **Sci-Plex (Srivatsan 2020)** — drug perturbation across 3 cell lines. We will use the scPerturb-curated Sci-Plex `.h5ad` files for M1; raw source downloads can follow if needed.
 - **NormanWeissman2019 (filtered)** — genetic perturbations; used as an additional M1 dataset for baseline coverage.
-- **Replogle 2022 (K562 essential + RPE1)** — merged into a combined dataset to enable **context OOD** (cell-line holdout) for genetic perturbations.
+- **Replogle 2022 (K562 essential + RPE1)** — merged into a combined dataset to enable an **unseen-context split** (cell-line holdout) for genetic perturbations.
 
 Current focus (Option A):
 - **Sci‑Plex3 only** for drug perturbations (Sci‑Plex2/4 are optional and currently omitted due to tiny train/test counts under our split protocol).

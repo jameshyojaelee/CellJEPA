@@ -28,7 +28,7 @@ Goal: A JEPA encoder + JEPA-style conditional latent predictor that can predict 
 Data: single-cell perturbation datasets from scPerturb (harmonized, multi-study, multi-tech). 
 PMC
 
-Task: perturbation prediction under rigorous OOD splits (details below).
+Task: perturbation prediction under rigorous holdout splits (details below).
 
 Deliverable: open evaluation harness that includes deliberately simple baselines (mandatory because deep models often do not beat them). 
 Nature
@@ -490,7 +490,7 @@ Nature
 
 Your narrative is: JEPA predicts state embeddings; scGPT predicts expression tokens/count-like outputs.
 
-B. Splits (OOD-first, or results will be dismissed)
+B. Splits (holdout-first, or results will be dismissed)
 
 You should report at least two of:
 
@@ -626,7 +626,7 @@ GitHub
 
 So novelty may be incremental unless you:
 
-show new OOD regimes (cross-dataset, cross-modality)
+show new generalization regimes (cross-dataset, cross-modality)
 
 show robust wins over linear controls on carefully chosen metrics
 
@@ -650,7 +650,7 @@ Impact
 
 High-impact if you achieve:
 
-clear OOD generalization win (held-out perturbations + held-out contexts)
+clear generalization win (held-out perturbations + held-out contexts)
 
 robust multi-modal gains on Perturb-CITE-seq 
 PMC
@@ -690,7 +690,7 @@ Nature
 
 Mitigation: define success criteria that includes:
 
-OOD generalization wins
+generalization wins under holdout splits
 
 robustness across datasets
 
@@ -706,7 +706,7 @@ JEPA for Practical Perturbation Prediction in Single-Cell Omics: Latent-State Fo
 
 Core claims to test
 
-JEPA embeddings are better substrates for perturbation prediction under OOD shifts than embeddings learned via reconstruction or contrastive alignment. 
+JEPA embeddings are better substrates for perturbation prediction under distribution shifts than embeddings learned via reconstruction or contrastive alignment. 
 arXiv
 +1
 
@@ -797,7 +797,7 @@ regularization on/off (variance-cov)
 
 Hybrids policy (to keep the project focused)
 
-Do not introduce diffusion or LLM-JEPA hybrids until you have a stable JEPA baseline beating at least some controls on at least one OOD split.
+Do not introduce diffusion or LLM-JEPA hybrids until you have a stable JEPA baseline beating at least some controls on at least one holdout split.
 
 Then add one hybrid as a capped experiment:
 
@@ -815,7 +815,7 @@ Pretrained JEPA checkpoints for each dataset suite
 
 A “model card” style report:
 
-where it works (OOD regime)
+where it works (generalization regime)
 
 where it fails (baseline wins)
 
@@ -901,7 +901,7 @@ Deep learning models often do not outperform simple linear baselines for gene pe
 Nature
 +1
 
-“Set-to-set training using E-distance-style losses will improve OOD perturbation prediction.” [Speculation]
+“Set-to-set training using E-distance-style losses will improve perturbation prediction under distribution shift.” [Speculation]
 
 “Latent diffusion conditioned on (pre-state, perturbation) will yield calibrated stochastic perturbation outcomes.” [Speculation]
 
@@ -914,7 +914,7 @@ Gaps & Next Steps
 Pick the initial 2–4 scPerturb datasets for Stage A based on: perturbation type diversity, presence of multiple donors/cell lines, and clean metadata. 
 PMC
 
-Define the OOD split protocol first (before modeling) to prevent leakage and to align with the “simple baselines win” benchmark concerns. 
+Define the holdout split protocol first (before modeling) to prevent leakage and to align with the “simple baselines win” benchmark concerns. 
 Nature
 +1
 

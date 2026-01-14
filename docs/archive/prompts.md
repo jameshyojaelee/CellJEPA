@@ -426,7 +426,7 @@ Output:
 
 ## Prompt M4 — Multi-Dataset + Cross-Dataset Holdout
 
-Status label: 🟡 IN PROGRESS (v1 cross-dataset evals completed; requires M4-v2 to avoid conflating OOD axes)
+Status label: 🟡 IN PROGRESS (v1 cross-dataset evals completed; requires M4-v2 to avoid conflating generalization axes)
 
 ```text
 You are working in the `CellJEPA` repository.

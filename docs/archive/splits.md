@@ -12,21 +12,21 @@ Terminology note: these splits are defined for perturbation evaluation (v1), but
 
 ## 2) Stage A Main-Table Splits
 
-### S1 — Unseen perturbation (condition OOD)
+### S1 — Unseen perturbation (perturbation holdout)
 
 Goal: evaluate generalization to **held-out perturbations**.
 
 - Group key: `perturbation_id`
 - Rule: all cells with the same `perturbation_id` are assigned to the same fold.
-- Contexts may overlap between train and test (this isolates perturbation OOD).
+- Contexts may overlap between train and test (this isolates perturbation holdout).
 
-### S2 — Unseen context (context OOD)
+### S2 — Unseen context (context holdout)
 
 Goal: evaluate generalization to **held-out contexts** (e.g., donors/cell lines).
 
 - Group key: `context_id`
 - Rule: all cells with the same `context_id` are assigned to the same fold.
-- Perturbations may overlap between train and test (this isolates context OOD).
+- Perturbations may overlap between train and test (this isolates context holdout).
 
 ## 3) Fold Counts and Seeds
 

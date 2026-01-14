@@ -47,7 +47,7 @@ Template:
 - Rationale: Sci-Plex3 S1 is structurally hard without meaningful action encodings; we prioritize a defensible win vs baselines on S2 to unblock M4.
 - Alternatives: require wins on both S1 and S2 before M4.
 - Impacts: M3 evaluation focus, reporting, and gating for proceeding to M4.
-- References: `docs/m3_strategy.md`, `docs/plan.md`, `docs/prompts.md`
+- References: `docs/plan.md`, `docs/runbook.md`, `reports/parallel_m3_progress.md`
 - Owner: user
 
 ## 2025-12-25 - M3 evaluation filtering: drop nan perturbations and enforce minimum cells per condition
@@ -56,7 +56,7 @@ Template:
 - Rationale: Avoid noisy/degenerate condition pairs that destabilize metrics and inflate variance.
 - Alternatives: keep all pairs but downweight; lower threshold.
 - Impacts: Pair construction, reported `n_eval`, and comparability across runs (must record threshold in metrics).
-- References: `scripts/train_transition.py`, `docs/metrics.md`
+- References: `scripts/train_transition.py`, `docs/runbook.md`
 - Owner: user
 
 ## 2025-12-25 - Fast path to a defensible M4: run headroom audit and pick an M3 acceptance dataset with headroom
@@ -65,16 +65,16 @@ Template:
 - Rationale: Prevent spending weeks optimizing on a baseline-saturated benchmark; ensure M4 is gated by a defensible M3 win.
 - Alternatives: revise the M3 acceptance gate; proceed to M4 without an M3 win.
 - Impacts: Adds a headroom audit step and potentially changes the dataset used to satisfy M3 acceptance.
-- References: `docs/m3_strategy.md`, `docs/plan.md`
+- References: `docs/plan.md`, `docs/runbook.md`, `runs/m3_headroom_sciplex3_s2/report.md`, `runs/m3_headroom_replogle_s2/report.md`
 - Owner: user
 
-## 2025-12-25 - M3 acceptance target selected: Replogle S2 (context OOD)
+## 2025-12-25 - M3 acceptance target selected: Replogle S2 (unseen context)
 - Status: active
 - Decision: Use **Replogle S2_unseen_context** as the M3 acceptance target (Sci-Plex3 S2 is baseline-saturated under E-distance).
 - Rationale: Headroom audit showed minimal improvement over baselines on Sci-Plex3 S2, while Replogle S2 shows large oracle headroom.
 - Alternatives: keep Sci-Plex3 S2; choose another dataset/split.
 - Impacts: M3B/M3C runs will focus on Replogle S2; M4 remains gated on a baseline win with CIs there.
-- References: `runs/m3_headroom_sciplex3_s2/report.md`, `runs/m3_headroom_replogle_s2/report.md`, `docs/m3_strategy.md`
+- References: `runs/m3_headroom_sciplex3_s2/report.md`, `runs/m3_headroom_replogle_s2/report.md`
 - Owner: user
 
 ## 2025-12-25 - M3 accepted based on ridge win (Replogle S2)
@@ -104,7 +104,7 @@ Template:
 - Rationale: Beating ridge while losing to no-change is not a defensible “world model helps” claim.
 - Alternatives: keep “beat ridge” as sufficient for success.
 - Impacts: Updates M3/M4 acceptance framing and reporting; avoid declaring victory while still worse than no-change.
-- References: `docs/plan.md`, `docs/prompts.md`
+- References: `docs/plan.md`, `docs/runbook.md`
 - Owner: user
 
 ## 2025-12-31 - M4 cross-dataset is shared-action only + default control z-score calibration
@@ -113,7 +113,7 @@ Template:
 - Rationale: Initial M4 splits have near-zero perturbation overlap, making “cross-dataset” effectively S1+domain shift unless we restrict to shared actions; control z-scoring is a minimal, dependency-free calibration to reduce domain shift.
 - Alternatives: evaluate unseen-action via semantic action embeddings; treat calibration as optional only.
 - Impacts: Requires overlap diagnostics and filtering in the M4 runner; cross-dataset splits may be adjusted/redefined to ensure meaningful overlap.
-- References: `docs/plan.md`, `docs/prompts.md`, `reports/m4_cross_dataset_results.md`, `reports/m4_gene_overlap.md`
+- References: `docs/plan.md`, `docs/runbook.md`, `reports/m4_cross_dataset_results.md`, `reports/m4_gene_overlap.md`
 - Owner: user
 
 ## 2025-12-25 - Module mask sources + gene ID space
@@ -140,16 +140,16 @@ Template:
 - Rationale: Documented as the chosen default in the M3 decision gate.
 - Alternatives: not recorded here.
 - Impacts: M3 metrics, reports, and comparisons use E-distance.
-- References: `docs/prompts.md`
+- References: `docs/runbook.md`
 - Owner: user
 
 ## 2025-12-24 - M1 ingestion uses scPerturb + Sci-Plex, with additional genetic datasets
 - Status: active
-- Decision: Use scPerturb v1.4 harmonized h5ad files for Sci-Plex (Sci-Plex2/3/4), plus NormanWeissman2019 (filtered) and Replogle 2022 merged for context OOD; current focus is Sci-Plex3 only for drug perturbations.
+- Decision: Use scPerturb v1.4 harmonized h5ad files for Sci-Plex (Sci-Plex2/3/4), plus NormanWeissman2019 (filtered) and Replogle 2022 merged for unseen-context holdout; current focus is Sci-Plex3 only for drug perturbations.
 - Rationale: Selected as the initial Stage A datasets per the dataset shortlist decision log.
 - Alternatives: see dataset shortlist for other candidates.
 - Impacts: Ingestion targets, splits, baselines, and reports for M1.
-- References: `docs/datasets.md`
+- References: `docs/runbook.md`
 - Owner: user
 
 ## 2025-12-24 - Multi-modal target for M5 is Perturb-CITE-seq
@@ -158,7 +158,7 @@ Template:
 - Rationale: Selected in the dataset decision log.
 - Alternatives: not recorded here.
 - Impacts: M5 planning, ingestion, and evaluation.
-- References: `docs/datasets.md`
+- References: `docs/runbook.md`
 - Owner: user
 
 ## 2025-12-25 - Later validation corpus includes Tahoe-100M
@@ -167,5 +167,5 @@ Template:
 - Rationale: Selected in the dataset decision log for later-stage validation.
 - Alternatives: not recorded here.
 - Impacts: Future scaling/validation planning.
-- References: `docs/datasets.md`
+- References: `docs/runbook.md`
 - Owner: user

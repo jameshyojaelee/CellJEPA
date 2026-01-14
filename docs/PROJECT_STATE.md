@@ -2,7 +2,7 @@
 
 Purpose: maintain a compact, current snapshot of progress, reasoning, and key artifacts so a new session can resume quickly.
 
-Last updated: 2026-01-05
+Last updated: 2026-01-13
 
 Update rules:
 - Update after each milestone completion, major run, or shift in reasoning.
@@ -16,12 +16,12 @@ Update rules:
 - Pending milestones: M5.
 - Current focus: align execution with the Phase 0–5 roadmap (docs tracked, gene ID policy, safe heads everywhere).
 - Key decisions: see `docs/DECISIONS.md`.
-- Strategy doc: `docs/m3_strategy.md` (legacy M3 recovery context).
-- Next decision gates (confirm with user before acting): canonical gene ID space, sparse JEPA training path, and a drug dataset pair with meaningful action overlap.
+- Operational reference: `docs/runbook.md`.
+- Next decision gates (confirm with user before acting): sparse JEPA training path and a cross-dataset pair with meaningful action overlap.
 
-## Progress log (summarized from `docs/prompts.md` status tracker unless noted)
+## Progress log
 - 2025-12-24: M0 complete. Implemented data-contract checks, split generator CLI, and toy dataset generator. Artifacts include `scripts/make_toy_dataset.py`, `scripts/make_splits.py`, and `runs/m0_splits/`.
-- 2025-12-24: M1 complete. Ingested chosen datasets, added baseline harness (no-change, mean-shift, ridge in PCA), and generated golden reports (see `docs/datasets.md` for selection context).
+- 2025-12-24: M1 complete. Ingested chosen datasets, added baseline harness (no-change, mean-shift, ridge in PCA), and generated golden reports (dataset suite is summarized in `docs/runbook.md`).
 - 2025-12-24: M2 complete. Implemented JEPA pretraining (online/teacher/predictor), masking, collapse diagnostics, fast-dev run path, and embeddings export with metrics.
 - 2025-12-25: M3 implemented but acceptance not met. Added split-safe evaluation upgrades (CIs, baselines in embedding space, resampling, filtering) and ran sciplex3-only sweeps. Current summary: `reports/m3_sciplex3_report.md`.
 - 2025-12-25: Headroom audits completed:
@@ -44,14 +44,13 @@ Update rules:
 - 2025-12-25: Harmonized datasets written under `data/processed/harmonized/` and M4 cross‑dataset training jobs launched (Sci‑Plex3 holdout + Replogle holdout).
 - 2025-12-25: Replaced M4 cross‑dataset runner with `scripts/m4_cross_dataset_eval.py` and submitted new eval jobs (IDs 12834796, 12834797).
 - 2025-12-26: M4 cross‑dataset effect‑filtered (top 20%) evals completed for Sci‑Plex3 and Replogle holdouts; results in `reports/m4_cross_dataset_results.md` and run outputs under `runs/m4_cross_*_holdout_set_effect20/`.
-- 2025-12-31: Post‑M4 review: cross‑dataset splits have near‑zero perturbation overlap (cross‑dataset ≈ S1+domain unless restricted). Defined M4‑v2 as **shared‑action cross‑dataset only** with **control z‑score embedding calibration enabled by default** and “usefulness gate” = must beat **no‑change** somewhere; updated `docs/plan.md` + `docs/prompts.md` and recorded decisions in `docs/DECISIONS.md`.
+- 2025-12-31: Post‑M4 review: cross‑dataset splits have near‑zero perturbation overlap (cross‑dataset ≈ S1+domain unless restricted). Defined M4‑v2 as **shared‑action cross‑dataset only** with **control z‑score embedding calibration enabled by default** and “usefulness gate” = must beat **no‑change** somewhere; updated `docs/plan.md` + `docs/runbook.md` and recorded decisions in `docs/DECISIONS.md`.
 - 2026-01-05: Plan updated to Phase 0–5 roadmap; docs are now tracked in git; baseline-only dependencies approved (see `docs/DECISIONS.md`).
 
 ## Key artifacts
 - Plans and guardrails: `docs/plan.md`, `AGENTS.md`.
 - Decision log: `docs/DECISIONS.md`.
-- Status tracker and prompts: `docs/prompts.md`.
-- Strategy: `docs/m3_strategy.md`.
+- Runbook (contracts + how-to): `docs/runbook.md`.
 - Reports: `reports/m3_sciplex3_report.md`, `reports/m3_summary.md`.
 - Split artifacts: `runs/m0_splits/`.
 

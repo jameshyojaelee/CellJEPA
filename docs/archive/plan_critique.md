@@ -7,7 +7,7 @@ Scope: This critique evaluates `docs/initial_plan.md` as a *project execution ar
 
 `docs/initial_plan.md` shows strong research instincts:
 - JEPA-first framing focused on predicting *representations* rather than reconstructing noisy counts.
-- Early emphasis on **OOD splits** and **deliberately simple baselines** (critical in perturbation prediction).
+- Early emphasis on **holdout splits** and **deliberately simple baselines** (critical in perturbation prediction).
 - Helpful uncertainty tagging (“Verified / Inference / Speculation”) and early leakage awareness.
 
 Main blockers to execution-readiness:
@@ -56,7 +56,7 @@ Thesis: “A JEPA-trained embedding space makes perturbation prediction more pra
 
 This needs translation into measurable claims:
 - “practical” → faster training, fewer failure cases, simpler pipeline, better compute/accuracy tradeoff?
-- “robust” → which OOD axes (perturbation, donor, cell line, dataset)? how many datasets?
+- “robust” → which generalization axes (perturbation, donor, cell line, dataset)? how many datasets?
 - “benchmarkable” → what standardized harness outputs? how is it packaged?
 
 **Recommendation:** define 2–3 primary claims and bind each to:
@@ -81,7 +81,7 @@ The plan already notes this, and it is real: cosine distance improvements can fe
 - gene set alignment needs,
 - perturbation label quality,
 - covariate confounding (batch/donor/library),
-- and which OOD splits are possible.
+- and which holdout splits are possible.
 
 **Recommendation:** add an explicit rubric + commit to a concrete initial dataset list (IDs/names), plus a fallback list.
 
@@ -246,7 +246,7 @@ The plan discusses scaling curves conceptually but does not set expectations:
 Diffusion/LLM-JEPA/morphology/spatial are exciting, but they represent distinct research programs.
 
 **Recommendation:** move them into an explicit “Not in v1” / “Stretch” section with strict gating, e.g.:
-- only attempt after the Stage A main table is complete **and** the JEPA baseline shows a clear advantage on at least one OOD split.
+- only attempt after the Stage A main table is complete **and** the JEPA baseline shows a clear advantage on at least one holdout split.
 
 ### 8.2 Stage ordering should be: splits → baselines → JEPA
 The current narrative is model-forward. In this problem setting, the safer order is:
@@ -260,7 +260,7 @@ The current narrative is model-forward. In this problem setting, the safer order
 
 Top risks not fully handled in the current plan:
 - **R1: JEPA collapse or trivial heuristics** (library size/dropout shortcuts).
-- **R2: No consistent improvement over linear controls** across OOD splits.
+- **R2: No consistent improvement over linear controls** across holdout splits.
 - **R3: Dataset heterogeneity overwhelms the model** (label noise, confounding).
 - **R4: Evaluation ambiguity** (embedding metrics not persuasive).
 - **R5: Engineering sprawl** (too many datasets, too many models, too many optional branches).

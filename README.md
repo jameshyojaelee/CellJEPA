@@ -77,7 +77,7 @@ Instead, we evaluate:
 
 **Cross-dataset note (M4-v2):**
 Cross-dataset holdouts can silently conflate **domain shift** with **unseen-action** evaluation when perturbation vocabularies differ across studies.
-For v1, the main cross-dataset tables are defined on **shared actions only**, with **control-based embedding z-score calibration enabled by default**, and transition heads must include a **no-change fallback** to avoid catastrophic OOD blow-ups.
+For v1, the main cross-dataset tables are defined on **shared actions only**, with **control-based embedding z-score calibration enabled by default**, and transition heads must include a **no-change fallback** to avoid catastrophic distribution-shift blow-ups.
 See `reports/m4_drug_cross_dataset_split_recommendation.md`.
 
 We also log run summaries (timestamped JSONL) to `reports/attempts_log.jsonl` for tracking attempts across JEPA and transition models.
@@ -90,7 +90,7 @@ v1 focuses on harmonized public perturbation datasets and multi-modal perturbati
 
 - **scPerturb**: a harmonized collection of **44** single-cell perturbation-response datasets with molecular readouts (transcriptomics, proteomics, epigenomics): https://www.nature.com/articles/s41592-023-02144-y
 - **Perturb-CITE-seq** (M5 stretch): pooled CRISPR perturbations with multi-modal RNA + protein readouts (Nature Genetics, 2021): https://www.nature.com/articles/s41588-021-00779-1
-- See `docs/datasets.md` for the repo’s current chosen v1 datasets and any constraints.
+- See `docs/runbook.md` for the repo’s current v1 dataset suite and operational constraints.
 
 ---
 
@@ -125,10 +125,10 @@ We treat negative results as informative, as long as they are well-controlled.
 
 See:
 - Project plan: `docs/plan.md`
-- Plan critique / risks: `docs/plan_critique.md`
-- M3 recovery strategy (headroom audit → acceptance target → world model pivot): `docs/m3_strategy.md`
-- HPC/Slurm notes: `docs/HPC.md`
-- Download manifests: `docs/downloads.md`
+- Runbook (contracts + splits + metrics + HPC): `docs/runbook.md`
+- Decision log: `docs/DECISIONS.md`
+- Project state: `docs/PROJECT_STATE.md`
+- Historical drafts/notes: `docs/archive/`
 
 (Quickstart commands will live here once the training/eval CLI stabilizes.)
 

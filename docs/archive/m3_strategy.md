@@ -61,14 +61,14 @@ Branch:
 
 ### Step 0b (≤1 day): Identify an “M3 acceptance dataset” with headroom
 
-Goal: find a dataset/split where a JEPA-style model could plausibly beat ridge under strict OOD evaluation.
+Goal: find a dataset/split where a JEPA-style model could plausibly beat ridge under strict holdout evaluation.
 
 Principles:
 - Do not overfit to a single dataset’s quirks.
 - Prefer datasets where perturbation response is known to be context-dependent and nonlinear.
 
 Candidate targets (already ingested / available in this repo state):
-- **Replogle (context OOD / S2)**: larger condition pairs; more structure; likely more headroom than SciPlex3.
+- **Replogle (unseen context / S2)**: larger condition pairs; more structure; likely more headroom than SciPlex3.
 - **Norman2019**: smaller contexts but may have signal; depends on split definition.
 
 Deliverables:
