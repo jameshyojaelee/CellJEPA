@@ -89,6 +89,39 @@ def collate_variable_genes(batch):
     return expression, gene_ids, mask
 
 
+def extract_subgraph(
+    full_edge_index: torch.Tensor,
+    gene_ids: torch.Tensor,
+) -> torch.Tensor:
+    """Extract the subgraph for genes present in the current batch.
+
+    The full gene graph has edges referencing global vocabulary indices (0..V),
+    but each batch only contains a subset of ~N expressed genes.  This function
+    filters to edges where both endpoints are present and remaps indices to
+    local positions (0..N-1) so the GNN can operate on the per-batch token
+    tensor.
+
+    Args:
+        full_edge_index: (2, E) global graph edges.
+        gene_ids: (N,) gene vocabulary indices present in this batch.
+
+    Returns:
+        local_edge_index: (2, E') with indices in [0, N).
+    """
+    # Build global-to-local lookup table
+    max_id = max(gene_ids.max().item(), full_edge_index.max().item()) + 1
+    g2l = torch.full((max_id,), -1, dtype=torch.long, device=gene_ids.device)
+    g2l[gene_ids] = torch.arange(gene_ids.shape[0], device=gene_ids.device)
+
+    # Remap both endpoints
+    local_src = g2l[full_edge_index[0]]
+    local_dst = g2l[full_edge_index[1]]
+
+    # Keep only edges where both endpoints are in the batch
+    valid = (local_src >= 0) & (local_dst >= 0)
+    return torch.stack([local_src[valid], local_dst[valid]])
+
+
 def set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -159,7 +192,11 @@ def train_epoch(
 
         # Forward pass
         unwrapped = model.module if hasattr(model, "module") else model
-        outputs = unwrapped(expression, gene_ids[0], mask_result, edge_index=edge_index)
+        # For GNN: extract per-batch subgraph from the full gene graph
+        batch_edge_index = None
+        if edge_index is not None:
+            batch_edge_index = extract_subgraph(edge_index, gene_ids[0])
+        outputs = unwrapped(expression, gene_ids[0], mask_result, edge_index=batch_edge_index)
 
         # Compute loss
         loss_dict = unwrapped.compute_loss(outputs)

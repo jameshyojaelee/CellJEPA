@@ -57,6 +57,15 @@ Template:
 - References: `docs/plan.md` (§5.2)
 - Owner: user
 
+## 2026-02-11 - GNN dynamic subgraph extraction at training time
+- Status: active
+- Decision: The GNN encoder receives a **per-batch subgraph** extracted dynamically from the full PPI gene graph. `extract_subgraph()` filters edges to only those between expressed genes and remaps global vocabulary indices to local batch positions.
+- Rationale: Each cell expresses ~4–7K genes but the full gene graph uses 65K vocabulary indices. Passing the full edge_index causes IndexError (indices out of bounds for the per-cell token tensor). Dynamic subgraph extraction is O(E) per batch and preserves the biological graph structure.
+- Alternatives: Embed all 65K genes per cell (prohibitive memory); precompute fixed subgraphs per dataset (loses per-cell variability); use kNN graph instead of PPI (loses biological priors).
+- Impacts: GNN pretraining now works end-to-end. `pretrain_jepa_v2.py` accepts `--gene-graph` for GNN runs.
+- References: `scripts/pretrain_jepa_v2.py` (`extract_subgraph()`), `configs/graphs/ppi_go_graph_v1.pt`
+- Owner: user
+
 ---
 
 ## Seeded entries (from existing repo state; confirm/supersede as needed)
