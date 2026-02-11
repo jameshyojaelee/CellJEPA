@@ -134,6 +134,8 @@ def train_epoch(
     grad_accum: int = 1,
     max_grad_norm: float = 1.0,
     mask_ratio: float = 0.25,
+    max_steps: int = 0,
+    edge_index: torch.Tensor | None = None,
 ) -> dict:
     """Run one training epoch."""
     model.train()
@@ -157,7 +159,7 @@ def train_epoch(
 
         # Forward pass
         unwrapped = model.module if hasattr(model, "module") else model
-        outputs = unwrapped(expression, gene_ids[0], mask_result)
+        outputs = unwrapped(expression, gene_ids[0], mask_result, edge_index=edge_index)
 
         # Compute loss
         loss_dict = unwrapped.compute_loss(outputs)
@@ -182,6 +184,9 @@ def train_epoch(
         total_var += loss_dict["var_loss"].item()
         total_cov += loss_dict["cov_loss"].item()
         n_steps += 1
+
+        if max_steps > 0 and n_steps >= max_steps:
+            break
 
     return {
         "loss": total_loss / max(n_steps, 1),
@@ -208,6 +213,7 @@ def main() -> None:
     parser.add_argument("--n-heads", type=int, default=8)
     parser.add_argument("--mask-ratio", type=float, default=0.25)
     parser.add_argument("--loss", choices=["mse", "smooth_l1", "cosine"], default="smooth_l1")
+    parser.add_argument("--gene-graph", type=str, default=None, help="Path to gene graph .pt (required for GNN encoder)")
 
     # Training
     parser.add_argument("--out", required=True, help="Output directory")
@@ -221,6 +227,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--save-every", type=int, default=1, help="Save checkpoint every N epochs")
+    parser.add_argument("--max-steps", type=int, default=0, help="Max steps per epoch (0=all, useful for testing)")
 
     # Resume
     parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
@@ -277,19 +284,47 @@ def main() -> None:
         drop_last=True,
     )
 
-    # Build model
-    encoder_kwargs = {
-        "embed_dim": args.embed_dim,
-        "n_layers": args.n_layers,
-        "n_heads": args.n_heads,
-    }
+    # Determine vocabulary size for the embedding table
+    if args.gene_vocab:
+        vocab_size = len(Path(args.gene_vocab).read_text().strip().split("\n"))
+    else:
+        # Fallback: use gene count from first dataset
+        vocab_size = datasets[0].mapped_gene_count
+    # +1 because gene IDs are 1-indexed (0 reserved for padding)
+    n_genes = vocab_size + 1
+    if is_main_process():
+        print(f"  Gene vocabulary size: {vocab_size:,} → embedding table: {n_genes:,}")
+
+    # Build model — map generic CLI args to each encoder config's field names
+    if args.encoder == "perceiver":
+        encoder_kwargs = {
+            "n_cross_attn_layers": max(1, args.n_layers // 3),
+            "n_self_attn_layers": args.n_layers - max(1, args.n_layers // 3),
+            "n_heads": args.n_heads,
+        }
+    else:
+        # Transformer and GNN both use n_layers + n_heads
+        encoder_kwargs = {
+            "n_layers": args.n_layers,
+            "n_heads": args.n_heads,
+        }
     jepa_cfg = JEPAv2Config(
-        tokenizer=GeneTokenizerConfig(embed_dim=args.embed_dim),
+        tokenizer=GeneTokenizerConfig(token_dim=args.embed_dim, n_genes=n_genes),
         encoder_type=args.encoder,
         encoder_kwargs=encoder_kwargs,
         loss_type=args.loss,
     )
     model = JEPAv2(jepa_cfg).to(device)
+
+    # Load gene graph for GNN encoder
+    edge_index = None
+    if args.encoder == "gnn":
+        if not args.gene_graph:
+            raise SystemExit("ERROR: --gene-graph is required for GNN encoder")
+        graph_data = torch.load(args.gene_graph, weights_only=False)
+        edge_index = graph_data["edge_index"].to(device)
+        if is_main_process():
+            print(f"  Gene graph: {edge_index.shape[1]:,} edges from {args.gene_graph}")
     model = get_ddp_model(model, dist_cfg.local_rank)
 
     # Optimizer + scheduler
@@ -333,6 +368,8 @@ def main() -> None:
             grad_accum=args.grad_accum,
             max_grad_norm=args.max_grad_norm,
             mask_ratio=args.mask_ratio,
+            max_steps=args.max_steps,
+            edge_index=edge_index,
         )
         elapsed = time.time() - t0
         metrics["epoch"] = epoch

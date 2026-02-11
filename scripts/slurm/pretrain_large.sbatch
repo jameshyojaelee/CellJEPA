@@ -7,11 +7,6 @@
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#
-# Multi-GPU: uncomment and adjust for DDP
-# #SBATCH --nodes=1
-# #SBATCH --ntasks-per-node=4
-# #SBATCH --gres=gpu:4
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1
@@ -23,6 +18,7 @@ mkdir -p logs
 ENCODER=${ENCODER:-transformer}
 DATASET=${DATASET:-data/processed/replogle_k562_rpe1/replogle_k562_rpe1_v1.h5ad}
 GENE_VOCAB=${GENE_VOCAB:-configs/gene_vocab_human_v1.txt}
+GENE_GRAPH=${GENE_GRAPH:-configs/graphs/ppi_go_graph_v1.pt}
 EPOCHS=${EPOCHS:-50}
 BATCH_SIZE=${BATCH_SIZE:-256}
 LR=${LR:-1e-3}
@@ -40,9 +36,13 @@ echo "  Seed:      ${SEED}"
 echo "  Run ID:    ${RUN_ID}"
 echo ""
 
-python3 -m compileall src scripts 2>/dev/null
+# Build optional args
+EXTRA_ARGS=""
+if [ "${ENCODER}" = "gnn" ]; then
+    echo "  Gene graph: ${GENE_GRAPH}"
+    EXTRA_ARGS="--gene-graph ${GENE_GRAPH}"
+fi
 
-# Single GPU
 python3 scripts/pretrain_jepa_v2.py \
     --datasets "${DATASET}" \
     --gene-vocab "${GENE_VOCAB}" \
@@ -51,17 +51,7 @@ python3 scripts/pretrain_jepa_v2.py \
     --batch-size "${BATCH_SIZE}" \
     --lr "${LR}" \
     --seed "${SEED}" \
-    --out "runs/${RUN_ID}/"
-
-# For multi-GPU (uncomment single-GPU above, uncomment below):
-# torchrun --nproc_per_node=4 scripts/pretrain_jepa_v2.py \
-#     --datasets "${DATASET}" \
-#     --gene-vocab "${GENE_VOCAB}" \
-#     --encoder "${ENCODER}" \
-#     --epochs "${EPOCHS}" \
-#     --batch-size "${BATCH_SIZE}" \
-#     --lr "${LR}" \
-#     --seed "${SEED}" \
-#     --out "runs/${RUN_ID}/"
+    --out "runs/${RUN_ID}/" \
+    ${EXTRA_ARGS}
 
 echo "=== Done ==="
