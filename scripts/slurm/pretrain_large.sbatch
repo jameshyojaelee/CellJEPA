@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=celljepa-p4-pretrain
-#SBATCH --time=72:00:00
-#SBATCH --cpus-per-task=12
+#SBATCH --job-name=pretrain
+#SBATCH --time=88:00:00
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
@@ -44,20 +44,20 @@ python3 -m compileall src scripts 2>/dev/null
 
 # Single GPU
 python3 scripts/pretrain_jepa_v2.py \
-    --encoder "${ENCODER}" \
-    --dataset "${DATASET}" \
+    --datasets "${DATASET}" \
     --gene-vocab "${GENE_VOCAB}" \
+    --encoder "${ENCODER}" \
     --epochs "${EPOCHS}" \
     --batch-size "${BATCH_SIZE}" \
     --lr "${LR}" \
     --seed "${SEED}" \
     --out "runs/${RUN_ID}/"
 
-# For multi-GPU (uncomment and adjust):
+# For multi-GPU (uncomment single-GPU above, uncomment below):
 # torchrun --nproc_per_node=4 scripts/pretrain_jepa_v2.py \
-#     --encoder "${ENCODER}" \
-#     --dataset "${DATASET}" \
+#     --datasets "${DATASET}" \
 #     --gene-vocab "${GENE_VOCAB}" \
+#     --encoder "${ENCODER}" \
 #     --epochs "${EPOCHS}" \
 #     --batch-size "${BATCH_SIZE}" \
 #     --lr "${LR}" \
