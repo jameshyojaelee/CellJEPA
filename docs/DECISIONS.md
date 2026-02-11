@@ -21,6 +21,44 @@ Template:
 
 ---
 
+## 2026-02-11 - CellJEPA v2 complete architectural overhaul
+- Status: active
+- Decision: Replace v1 architecture (MLP encoder, embedding-lookup perturbations, embedding-only metrics) with a SOTA-competitive design: gene-token encoders (Transformer/GNN/Perceiver), biologically-grounded perturbation encodings (PPI/GO graph, chemical fingerprints), gene-level decoded predictions, and head-to-head benchmarking against GEARS/scGPT/CPA.
+- Rationale: Comprehensive critique (2026-02-11) identified the v1 MLP encoder, lookup-table perturbation encoding, and embedding-only evaluation as structurally insufficient to compete with current SOTA. The v1 M3 acceptance was marginal (beat ridge but not no-change), confirming the architecture gap.
+- Alternatives: Incremental improvements to MLP; focus on one encoder only; abandon JEPA for existing SOTA architectures.
+- Impacts: Complete rewrite of `docs/plan.md` with P1–P7 milestones replacing M0–M5. New source code modules under `src/celljepa/models/`. All v1 milestones M0–M2 retained as complete; M3 acceptance superseded by P3 usefulness gate; M4–M5 superseded by P4–P7.
+- References: `docs/plan.md`, implementation plan (2026-02-11)
+- Owner: user
+
+## 2026-02-11 - Supersede M3 acceptance (ridge win insufficient)
+- Status: active
+- Decision: The v1 M3 acceptance (beat ridge on Replogle S2 but not no-change) is superseded. The new P3 usefulness gate requires beating **no-change** with **gene-level decoded metrics** (not just embedding distances).
+- Rationale: Beating ridge while losing to no-change is not a defensible "world model helps" claim; embedding-only metrics don't measure what biologists care about.
+- Alternatives: Keep v1 M3 acceptance as sufficient.
+- Impacts: P3 gate is strictly stronger than M3 gate; all prior M3 runs remain as reference data.
+- References: `docs/plan.md` (P3 gate), `docs/DECISIONS.md` (2025-12-25 M3 acceptance)
+- Owner: user
+
+## 2026-02-11 - Primary metrics changed to gene-level
+- Status: active
+- Decision: Primary evaluation metrics are now **LFC Pearson correlation** and **Top-20 DEG recall** (decoded gene-level predictions). Embedding E-distance becomes secondary.
+- Rationale: Gene-level predictions are what biologists need and what SOTA methods are evaluated on; embedding distances alone are unconvincing.
+- Alternatives: Keep E-distance as primary; use only embedding metrics.
+- Impacts: All P3+ reports must include gene-level metrics; requires a gene-level decoder module.
+- References: `docs/plan.md` (§7.1), `docs/runbook.md`
+- Owner: user
+
+## 2026-02-11 - Three encoder backends (no single winner assumed)
+- Status: active
+- Decision: Implement **Transformer**, **GNN**, and **Perceiver** encoder backends and compare systematically; do not pre-commit to one.
+- Rationale: No evidence that one backbone is universally best for omics JEPA; systematic comparison is a scientific contribution.
+- Alternatives: Pick one backbone (Transformer most validated).
+- Impacts: P1 scope is larger; requires parallel implementation and benchmarking.
+- References: `docs/plan.md` (§5.2)
+- Owner: user
+
+---
+
 ## Seeded entries (from existing repo state; confirm/supersede as needed)
 
 ## 2026-01-05 - Track docs/ in git (PDFs remain ignored)

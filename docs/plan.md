@@ -1,8 +1,8 @@
-# CellJEPA — Project Plan (Execution-Ready)
+# CellJEPA — Project Plan (v2: SOTA-Competitive Overhaul)
 
-Date: 2026-01-14  
-Status: v5 (milestones + gates + contracts aligned)  
-Canonical goal: Build a **cell-centric world model** for single-cell omics where JEPA learns a general **latent cell state representation**; evaluate primarily on **perturbation-driven state transitions** (perturbation prediction) in v1.
+Date: 2026-02-11  
+Status: v2.0 (complete architectural overhaul; P1–P7 milestones replace M0–M5)  
+Canonical goal: Build a **SOTA-competitive perturbation prediction model** using JEPA-style representation learning with biologically-grounded gene-token architectures, evaluated head-to-head against GEARS, scGPT, CPA, and GeneFormer on standard benchmarks.
 
 This file is the **canonical roadmap**: what we are building and the **gates** that determine whether we proceed.
 Operational contracts (schemas, CLI expectations, metrics, HPC defaults) live in `docs/runbook.md`.
@@ -18,407 +18,390 @@ Current progress and run inventory: `docs/PROJECT_STATE.md`.
 ## 0) One-Page Summary
 
 ### Core thesis (testable)
-Learning a JEPA-style representation of cell state and predicting **post-perturbation state in embedding space** yields **better generalization under distribution shift** and **more stable/usable** perturbation prediction than objectives centered on reconstructing noisy measurements.
+A JEPA-style representation of cell state, built on **gene-token architectures** (Transformer / GNN / Perceiver) with **biologically-grounded perturbation encodings** and **gene-level decoded predictions**, will produce perturbation response predictions that **beat current SOTA deep learning methods** on standard benchmarks under strict evaluation.
 
-### Project framing (what “CellJEPA” means)
-- a cell-centric “world model”: the cell’s latent state is the primary object
-- JEPA is treated as a general representation learner for state (not a task-specific trick)
-- perturbations are one instantiation of **state transitions** (action → next state)
-- perturbation prediction is the primary evaluation regime in v1, not the only conceivable one
+### What changed from v1 (and why)
+The v1 plan used a 3-layer MLP encoder, embedding-lookup perturbation encoding, and embedding-distance–only evaluation. A comprehensive critique (2026-02-11) identified these as structurally insufficient to compete with GEARS (GNN + Gene Ontology), scGPT (Transformer + 33M cells), CPA (disentangled latent factors), and GeneJEPA (Perceiver + 100M cells). The v2 plan:
+- Replaces the MLP encoder with three gene-token encoder backends (Transformer, GNN, Perceiver)
+- Replaces embedding-lookup perturbations with graph/fingerprint/identity encodings
+- Adds gene-level decoded prediction metrics as primary evaluation
+- Adds large-scale pretraining and head-to-head SOTA benchmarking
+- Retains all evaluation rigor (mandatory baselines, CIs, split safety, leakage prevention)
 
 ### Product deliverable (what exists at the end)
 1. A reproducible **benchmark harness** that:
-   - downloads/prepares a curated subset of perturbation datasets,
+   - downloads/prepares a curated suite of perturbation datasets (10+),
    - generates split files (holdout protocols),
    - trains simple + strong baselines,
-   - trains CellJEPA models,
-   - produces a fixed report with tables/plots and machine-readable metrics.
+   - trains CellJEPA models (all encoder backends),
+   - runs SOTA methods (GEARS, scGPT, CPA) on identical splits,
+   - produces head-to-head comparison tables with CIs.
 2. A **CellJEPA model** package with:
-   - JEPA encoder pretraining,
-   - perturbation-transition predictor(s) operating in embedding space,
-   - ablations to isolate what matters (masking, teacher EMA, regularization).
+   - Gene-token JEPA encoder pretraining (Transformer / GNN / Perceiver),
+   - biologically-grounded perturbation encoders,
+   - advanced transition/world-model predictors,
+   - gene-level prediction decoders,
+   - ablations isolating what matters.
 
-### Non-goals (v1)
-- Not a foundation model for all scRNA-seq.
-- Not “best possible” count reconstruction.
-- Not diffusion/LLM hybrids unless gated in as “stretch” after Stage A results land.
-- Not morphology/spatial integration in v1.
-- Not claiming perturbations are the only state-transition regime; they are the v1 evaluation focus.
+### Non-goals (v2)
+- Not trying to be the largest foundation model (we leverage existing pretraining corpora).
+- Not claiming JEPA is universally better; we characterize *where* it wins and *where* it doesn't.
 
 ## 0.1 Default Decisions (to unblock implementation)
 
-These are *defaults*, not permanent commitments. They exist to keep runs comparable and to avoid silent drift.
-If a default changes, record it (with date) in `docs/DECISIONS.md` and update this section.
+These are *defaults*, not permanent commitments. If a default changes, record it in `docs/DECISIONS.md`.
 
 - **Stage A main-table splits:** `S1_unseen_perturbation` and `S2_unseen_context` (defined in §4).
-- **v1 preprocessing:** library-size normalize → log1p; no batch correction.
-- **v1 gene IDs:** gene symbols in `var.index` (store `var["ensembl_id"]` when available).
-- **v1 action tokens:** `obs["perturbation_tokens"]` is a deterministic `|`-separated string; control token is `control:CTRL` (see `docs/runbook.md`).
-- **v1 evaluation filters:** drop `perturbation_id` in `{nan, none, ""}`; default `min_cells_per_condition=30`.
-- **v1 primary set metric:** energy distance (E-distance) over embedding sets (see §7).
+- **v2 preprocessing:** library-size normalize → log1p; no batch correction.
+- **v2 gene IDs:** gene symbols in `var.index` (store `var["ensembl_id"]` when available).
+- **v2 gene tokenization:** Fourier expression features + learned gene identity embeddings.
+- **v2 perturbation encoding:** gene identity embeddings for genetic perturbations; Morgan fingerprints for drugs; dose/time as continuous covariates.
+- **v2 action tokens:** `obs["perturbation_tokens"]` is a deterministic `|`-separated string; control token is `control:CTRL`.
+- **v2 evaluation filters:** drop `perturbation_id` in `{nan, none, ""}` ; default `min_cells_per_condition=30`.
+- **v2 primary metrics:** gene-level LFC Pearson correlation + Top-20 DEG recall (embedding E-distance as secondary).
 - **Safety-by-construction:** residual/shrinkage heads with `α ∈ [0,1]`, always include `α=0` (no-change), and clamp updates.
-- **Cross-dataset (M4):** shared-action only; control z-score calibration enabled by default; gene harmonization uses intersection sets (see `configs/harmonization/README.md`).
+- **Cross-dataset:** shared-action only; control z-score calibration enabled by default; gene harmonization uses intersection sets.
 - **Baselines are mandatory:** always report `no_change`, `mean_shift`, and `ridge` (plus shrinkage variants when relevant).
-- **JEPA backbone (Stage A):** choose the simplest stable implementation first, then ablate alternatives later.
+- **Encoder backends:** implement Transformer, GNN, and Perceiver; compare systematically.
 
 ## 0.2 Stop-the-Line Invariants (do not proceed if violated)
 
-These are non-negotiable because violations create misleading results and waste time.
-
-- **Data contract passes:** every `.h5ad` used in any run passes `celljepa.data.validation.validate_or_raise` (see `docs/runbook.md`).
+- **Data contract passes:** every `.h5ad` used in any run passes `celljepa.data.validation.validate_or_raise`.
 - **Split artifacts are real artifacts:** train/val/test are group-based, deterministic, saved as JSON, and reused across methods.
-- **No leakage:** any distribution- or label-dependent preprocessing is fit on **train only** and saved per split; never “peek” at test perturbed cells to choose features/params.
+- **No leakage:** any distribution- or label-dependent preprocessing is fit on **train only** and saved per split.
 - **Evaluation unit is condition pairs:** aggregate metrics over `(context_id, perturbation_id)` pairs (not cell-weighted averages).
-- **Baselines cannot be optional:** `no_change` must always be reported; if the model does not beat `no_change` anywhere, we do not claim “useful world model”.
-- **Cross-dataset must report overlap:** always report action overlap and restrict main tables to **shared-action** evaluation; hard-fail cross-dataset if overlap is zero.
-- **No non-finite values:** embeddings/predictions/metrics must be finite; any NaNs/Infs are a “stop and fix” event.
+- **Baselines cannot be optional:** `no_change` must always be reported.
+- **Cross-dataset must report overlap:** always report action overlap and restrict main tables to **shared-action** evaluation.
+- **No non-finite values:** embeddings/predictions/metrics must be finite; any NaNs/Infs are a "stop and fix" event.
+- **Gene-level metrics required:** every P3+ report must include LFC correlation and DEG recall, not just embedding distances.
 
 ## 1) Definitions (so experiments are unambiguous)
 
-- **Cell state embedding**: `z = fθ(x)` where `x` is a cell’s expression vector (after a fixed preprocessing contract).
-- **Action / perturbation condition**: metadata `a` describing an intervention (gene KO, drug, dose, time). In v1, actions are perturbations.
+- **Gene token**: `(gene_id_embedding, expression_fourier_features)` — the atomic input unit.
+- **Cell state embedding**: output of the encoder aggregated over gene tokens — `z = Encoder(gene_tokens)`.
+- **Action / perturbation condition**: metadata `a` describing an intervention (gene KO, drug, dose, time).
 - **State transition**: mapping from baseline/control state distribution to post-action state distribution within a context.
-- **Baseline context**: the *control* distribution for a context (donor/cell line/cell type/batch), used as the “pre-perturbation” reference.
-- **Prediction target**: the **post-perturbation embedding distribution** for condition `a` within a context.
+- **Baseline context**: the *control* distribution for a context (donor/cell line/cell type/batch).
+- **Prediction target**: the **post-perturbation gene expression** for condition `a` within a context.
 
-We explicitly support two prediction granularities:
-- **Prototype-level** (debug-first): predict condition mean/robust-mean embedding.
-- **Set-level** (core): predict a set/distribution of embeddings and compare to the empirical perturbed set via set metrics.
+We support two prediction granularities:
+- **Embedding-level** (latent space): predict condition embedding and evaluate via E-distance/cosine.
+- **Gene-level** (decoded): predict per-gene log-fold changes and evaluate via LFC correlation/DEG recall.
 
-## 2) Milestone Roadmap (M0–M5)
+## 2) Milestone Roadmap (P1–P7)
 
-Naming note:
-- “M0…M5” correspond to the `runs/m0_*`, `runs/m1_*`, … run prefixes and are the primary way we refer to progress.
-- Older notes may say “Phase”; treat “Phase” as synonymous with “Milestone”.
+Previous milestones M0–M2 are complete and retained. M3 is superseded by P1–P3. M4–M5 are superseded by P4–P7.
 
-### M0 — Repo + reproducibility baseline (immediate)
+### Completed (from v1)
+- **M0** — Repo + reproducibility baseline ✅
+- **M1** — Data correctness + baseline harness ✅
+- **M2** — Basic JEPA pretraining (MLP, proof-of-concept) ✅
+
+### P1 — Gene-Token Encoder + JEPA Rewrite
 Deliverables:
-- Track `docs/` in git (keep large PDFs ignored by default).
-- Keep the toy quickstart in `docs/runbook.md` running end-to-end and producing artifacts under `runs/`.
-- Add a minimal environment spec (at least one of: `requirements.txt`, `environment.yml`, or `pyproject.toml`).
-- Maintain a “golden” smoke check: `python3 -m compileall src scripts`.
+- Shared gene tokenization layer (Fourier expression + gene identity embeddings).
+- Three encoder backends: Transformer, GNN (with PPI/GO gene graph), Perceiver.
+- Refactored JEPA class that works with any encoder backend.
+- Gene-token–aware masking strategies (random gene mask, regulon-aware, pathway-block).
+- Anti-collapse diagnostics logged for all backends.
 
 Gate:
-- The toy quickstart produces `metrics.json` + `report.md` under `runs/` and can be rerun without errors.
+- All three backends train stably across ≥3 seeds; non-degenerate embeddings; collapse diagnostics logged; at least one backend produces clearly better downstream embeddings than the old MLP on Replogle.
 
-### M1 — Data correctness + baseline harness (highest leverage)
+### P2 — Perturbation Encoding Overhaul
 Deliverables:
-- Enforce the v1 data contract at ingestion time (required `obs`/`uns` keys; unique genes; see §3.2 and `docs/runbook.md`).
-- Lock the v1 gene identity policy (gene symbols) and version harmonization artifacts.
-- Ingest the v1 dataset suite and write processed `.h5ad` artifacts (see `docs/runbook.md`).
-- Generate split files for `S1_unseen_perturbation` and `S2_unseen_context` and store them as reusable artifacts.
-- Run the baseline harness (`no_change`, `mean_shift`, `ridge`) and produce reports/tables.
-- Run a headroom audit before spending weeks optimizing a baseline-saturated benchmark.
+- GNN-based gene perturbation encoder using PPI/GO graph node embeddings.
+- Chemical fingerprint encoder for drug perturbations (SMILES → Morgan fingerprints → MLP).
+- Shared gene identity embeddings as perturbation vectors for single-gene perturbations.
+- Combinatorial perturbation encoder (attentive pooling over individual embeddings).
+- Continuous dose/time conditioning MLP.
 
 Gate:
-- Every v1 dataset passes contract validation; baseline runs complete for S1/S2; at least one dataset/split shows headroom beyond baselines (or we record “baseline-saturated” and change targets in `docs/DECISIONS.md`).
+- S1 (unseen perturbation) with biologically-grounded encodings significantly outperforms the old embedding-lookup S1 on at least one dataset.
 
-### M2 — Omics-appropriate JEPA pretraining (representation substrate)
+### P3 — World Model Overhaul + Gene-Level Decoder
 Deliverables:
-- Replace “zeros-as-mask” with explicit mask channels/tokens; teacher targets come from full/augmented views.
-- Predictor conditions on mask identity (not only mask ratio).
-- Split-safe pretraining: pretraining can be restricted to train (or train+val) via split artifacts.
-- Anti-collapse: variance/covariance or normalization constraints with logged diagnostics.
-- Memory safety: train without densifying full matrices (or make densification an explicit, bounded debug mode).
+- Three world model architectures: attention-based, graph-conditioned, disentangled.
+- Gene-level prediction decoder (latent → per-gene LFC predictions).
+- Evaluation with gene-level metrics (LFC Pearson, DEG recall) as primary.
+- Safety-by-construction retained (residual/shrinkage/α).
+
+Gate (usefulness):
+- **Must beat `no_change`** on at least one dataset/split with gene-level decoded metrics (LFC correlation or DEG recall). This is the fundamental usefulness gate.
+
+### P4 — Large-Scale Pretraining + Dataset Expansion
+Deliverables:
+- Pretrain on CellxGene Census (~50M cells) or Tahoe-100M using the best encoder backend(s).
+- Expand perturbation dataset suite to 10+ datasets covering diverse cell types and perturbation modalities.
+- Efficient data loading infrastructure (streaming, multi-GPU).
+- Gene interaction graph artifacts (STRING-db PPI + Gene Ontology).
+- Regulon database artifacts (DoRothEA/CollecTRI).
 
 Gate:
-- Stable training across ≥3 seeds; non-degenerate embeddings; collapse diagnostics logged; no OOM on intended dataset scale.
+- Pretrained encoder outperforms from-scratch encoder on perturbation downstream tasks (S1 and S2) with CIs.
 
-### M3 — Transition/world-model training + safety + within-dataset acceptance
+### P5 — Evaluation Framework + Head-to-Head Benchmarking
 Deliverables:
-- Train prototype and set-level transition predictors in embedding space.
-- Safety-by-construction is the default: residual/shrinkage heads with alpha grids that always include `α=0`.
-- Evaluation produces bootstrap CIs and always includes `no_change`, `mean_shift`, `ridge` baselines (ideally computed in the same run to ensure identical filtering/resampling).
-- Filtering defaults applied (`min_cells_per_condition=30`, drop nan perturbations) and recorded in metrics.
-- M3 acceptance is allowed on `S2_unseen_context` only (per `docs/DECISIONS.md`) unless explicitly tightened.
+- Complete metric suite: LFC Pearson, DEG recall, PerturBench rank metric, calibrated E-distance, cosine, MSE, kNN retrieval.
+- Benchmark adapter scripts for GEARS, scGPT, CPA.
+- Unified benchmark runner producing standardized comparison tables with CIs.
+- All methods run on identical splits.
 
-Acceptance rule (“win with CI”, default):
-- For a lower-is-better metric (e.g., E-distance, MSE): `model_ci95_hi < baseline_ci95_lo`.
-- Require the win to hold in ≥2 of 3 seeds for the target setting.
+Gate (SOTA):
+- CellJEPA beats at least one of {GEARS, scGPT, CPA} on at least one standard benchmark split with CIs under standard evaluation protocol.
+
+### P6 — Multi-Modal Extension
+Deliverables:
+- scATAC-seq integration as regulatory prior (peak tokens, cross-modal attention).
+- Perturb-CITE-seq (RNA + protein) joint encoder.
+- Multi-modal JEPA objective (predict masked tokens in one modality from context in another).
 
 Gate:
-- **Baseline win:** beat `ridge` with CI on the chosen acceptance setting (default target lives in `docs/DECISIONS.md`).
-- **Usefulness win:** beat `no_change` with CI on at least one within-dataset setting (any dataset/split), or we do not claim “useful world model”.
-- No catastrophic blow-ups: residual alpha selection never “hides” divergence (alpha=0 is logged and may win).
+- Multi-modal model outperforms single-modal on at least one matched dataset.
 
-### M4 — Cross-dataset done right (shared-action only)
+### P7 — Publication Artifact + Final Benchmarking
 Deliverables:
-- Harmonize by intersection gene sets for the first pass (`configs/harmonization/README.md`).
-- Create cross-dataset splits that enforce meaningful action overlap (hard-fail if overlap is below threshold; use `scripts/m4_make_cross_dataset_splits.py --require-min-action-overlap` and/or `--require-min-action-overlap-frac`).
-- Evaluate shared-action only for the main cross-dataset tables; unseen-action is diagnostic.
-- Enable control-based embedding z-score calibration by default, with an ablation to disable; always report calibration stats.
-- Report overlap and evaluation pair counts after filtering; never pool across shared/unseen action.
+- Full ablation study: encoder backbone, perturbation encoding, world model, masking strategy, pretraining scale.
+- Manuscript-quality benchmark report with CIs.
+- Interpretability analysis (attention maps, GNN node importances).
+- Reproducible artifact package (configs + splits + metrics + code).
 
 Gate:
-- Cross-dataset runs are valid (non-zero shared-action pairs), stable (no NaNs/Infs), and include `no_change` baselines + overlap stats in every report.
+- Reproducible report artifact; beat SOTA with CIs on the primary benchmark; ablation study complete.
 
-### M5 — Public artifact + multimodal extension (gated)
-Deliverables:
-- A narrative report with dataset cards, split definitions, headroom audits, baselines + CIs, and JEPA ablations.
-- Optional: extend to RNA+protein (Perturb-CITE-seq) with an explicit, separate acceptance gate.
+## 3) Data Plan
 
-Gate:
-- Reproducible report artifact (configs + metrics + plots) suitable for public sharing.
-
-## 3) Data Plan (Concrete, Split-Safe)
-
-### 3.1 Dataset selection rubric (used to pick the initial 2–4)
+### 3.1 Dataset selection rubric
 Score each candidate on:
 - perturbation type diversity (genetic vs chemical),
 - availability of controls matched by context,
 - metadata completeness (perturbation ID, dose, time, donor/cell line),
 - size (enough cells per condition for set metrics),
 - cross-dataset compatibility (gene IDs, annotation quality),
+- cell type diversity (prioritize datasets with cell types not already covered),
 - minimal licensing / access friction.
 
-Current repo state (what we actually run) is documented in `docs/runbook.md` and `docs/PROJECT_STATE.md`.
+### 3.2 Data contract (v2)
+Hard requirement: every processed dataset artifact must pass `celljepa.data.validation.validate_or_raise`.
 
-### 3.2 Data contract (implementation requirement)
-Operational details (including the exact schema) live in `docs/runbook.md`. This section is a *summary*.
-
-Hard requirement: every processed dataset artifact must pass the repo’s validator (`celljepa.data.validation.validate_or_raise`).
-
-Required fields (v1):
+Required fields (v2):
 - `X`: numeric expression matrix (fixed preprocessing).
 - `var.index`: gene identifiers (must be unique).
 - `obs` columns:
   - `perturbation_id` (string)
   - `is_control` (bool)
   - `context_id` (string)
-  - `perturbation_tokens` (string; deterministic serialization, see §3.4)
+  - `perturbation_tokens` (string; deterministic serialization)
 - `uns` keys (provenance):
-  - `dataset_id`
-  - `preprocess_name`
-  - `preprocess_version`
-  - `created_at`
+  - `dataset_id`, `preprocess_name`, `preprocess_version`, `created_at`
 
-Recommended `obs` columns when available:
-- `cell_type`, `batch`, `dose`, `time_hours`.
+Recommended `obs` columns: `cell_type`, `batch`, `dose`, `time_hours`.
 
-Gene identity policy (v1, must be explicit and enforced):
-- Canonical v1 policy is **gene symbols in `var.index`**.
-- Store an Ensembl mapping column when available (e.g., `var["ensembl_id"]`) to reduce ambiguity.
-- If you remap IDs, store mapping provenance + version in `uns` and/or alongside the artifact; fail fast on mixed/unknown ID spaces.
+### 3.3 Gene tokenization contract (v2, new)
+All encoder backends consume tokenized gene inputs:
+- Each expressed gene → `(gene_id_embedding, expression_fourier_features)` token
+- Gene identity embedding layer covers ~20,000 human genes
+- Expression values encoded as Fourier features (continuous, no binning)
+- Variable numbers of expressed genes per cell supported (sparse input)
 
-### 3.3 Preprocessing (start conservative; minimize degrees of freedom)
-Initial v1 preprocessing target:
-- library-size normalize → log1p (or another single fixed transform),
-- fixed gene identifier standardization,
-- no batch correction in v1 unless strictly split-safe and justified.
+### 3.4 Gene interaction graph artifacts
+- `configs/graphs/ppi_go_graph_v1.pt`: STRING-db PPI + Gene Ontology co-annotation graph
+- Used by: GNN encoder, gene perturbation encoder
+- Gene nodes identified by gene symbol (matching `var.index`)
 
-Rules:
-- any statistics used by preprocessing that depend on the data distribution must be computed on the training fold only and saved per split.
+### 3.5 Regulon database artifacts
+- `configs/regulons/dorothea_v1.json`: DoRothEA TF → target gene mappings
+- Used by: regulon-aware masking strategy
 
-### 3.4 Action/perturbation metadata schema (portable across datasets)
+### 3.6 Preprocessing
+- library-size normalize → log1p (same as v1)
+- fixed gene identifier standardization
+- no batch correction unless strictly split-safe and justified
+- any distribution-dependent statistics computed on training fold only
 
-Define a canonical representation for actions (perturbations in v1):
-- `obs["perturbation_tokens"]`: a deterministic `|`-separated string of tokens:
-  - genes: `gene:STAT1`
-  - drugs: `drug:dexamethasone`
-  - controls: `control:CTRL`
-  - combos: multiple tokens in deterministic order, e.g. `gene:STAT1|gene:IRF9`
-- Optional numeric features stored per cell: `obs["dose"]`, `obs["time_hours"]` (NaN if unknown)
-- `obs["is_control"]` remains the canonical control flag
+### 3.7 Action/perturbation metadata schema
+Same as v1: `obs["perturbation_tokens"]` is a `|`-separated deterministic string.
 
-Default encoding strategy:
-- token embedding lookup summed/pooled across tokens,
-- numeric features (dose/time) passed through a small MLP and concatenated.
+## 4) Split Protocols
 
-## 4) Split Protocols (holdout-first, enforced as code)
+Identical to v1. See `docs/runbook.md` for operational details.
 
-We define splits at the **condition level** (and optionally at the context level), then sample cells within condition/context groups.
+### 4.1 Stage A main-table splits
+- **S1 — Unseen perturbation**: generalize to perturbations not seen during training.
+- **S2 — Unseen context**: generalize to new donors/cell lines.
 
-### 4.1 Stage A main-table splits (defaults)
-
-We standardize around two split families. Each split produces deterministic `train/val/test` condition lists and per-cell indices.
-
-**S1 — Unseen perturbation (perturbation holdout)**  
-Goal: generalize to perturbations not seen during training.
-- Split key: `perturbation_id`
-- Grouping rule: all cells with the same `perturbation_id` are assigned to the same fold.
-- Context handling: contexts are allowed to appear in both train and test, but perturbations are disjoint.
-
-Important: S1 is **not meaningful** if the transition model encodes perturbations as categorical IDs (everything is `<UNK>` at test).
-To make S1 meaningful, use an action representation that generalizes beyond the training perturbation vocabulary (e.g., token embeddings or split-safe gene embeddings; see `configs/actions/` and `docs/DECISIONS.md`).
-
-**S2 — Unseen context (context holdout)**  
-Goal: generalize to new donors/cell lines (or other context definition).
-- Split key: `context_id`
-- Grouping rule: all cells with the same `context_id` are assigned to the same fold.
-- Perturbation handling: perturbations may overlap between train and test, but contexts are disjoint.
-
-Defaults:
-- folds: 5 (or fewer if the dataset is too small; never <3 without calling it “pilot only”)
-- training seeds per fold: 3 (e.g., 0/1/2)
-
-### 4.2 Cross-dataset holdout (M4)
-Hold out entire dataset(s) after harmonizing to a shared gene set (v1 default: intersection sets; see `configs/harmonization/README.md`).
-
-Critical note (learned from initial M4 runs):
-- Cross-dataset holdout mixes **domain shift** *and* often **action/perturbation vocabulary shift** (very low overlap between perturbation vocabularies across studies).
-- Therefore, every cross-dataset report must include:
-  - action/perturbation overlap: `|A_train ∩ A_test|`, overlap fraction(s),
-  - evaluation pair counts stratified by **shared-action** vs `<UNK>`/unseen-action.
-- For v1, the main cross-dataset tables are **shared-action only**. Unseen-action cross-dataset is deferred until semantic action embeddings exist.
-
-Hard rules:
-- No preprocessing statistics may use test-fold cells.
-- Any learned modules/probes (e.g., adversarial masks) must be fit on training folds only.
-- Any distribution-dependent choices (e.g., HVGs, scaling parameters) must be computed per split (train fold only) and stored as artifacts.
+### 4.2 Cross-dataset holdout
+- Shared-action only for main tables.
+- Always report action overlap.
+- Control z-score calibration enabled by default.
 
 ## 5) Modeling Plan
 
-### 5.1 Cell-level JEPA (M2 baseline)
-Inputs:
-- expression vector with gene identities (explicitly represented, not implicit index-only).
-- masking must be **explicit** (mask channel or learned mask tokens), not “zeros-as-mask”.
+### 5.1 Gene Tokenization (shared across all encoders)
+- `GeneIdentityEmbedding`: learned d-dim embedding per gene symbol (~20K genes)
+- `FourierExpressionEncoder`: continuous expression → Fourier feature vector
+- `GeneTokenizer`: combines identity + expression into per-gene tokens
 
-Core components:
-- online encoder `fθ`,
-- teacher encoder `fθ̄` (EMA),
-- predictor `gφ(context_repr, target_pointer) → target_repr`.
+### 5.2 Encoder Backends (P1)
 
-Loss:
-- representation regression (cosine/L2) between predicted target and stop-grad teacher target.
-  - teacher target should come from a **full/augmented view**, not target-only zeroed inputs.
+**Transformer Encoder** (scGPT-inspired):
+- Standard Transformer encoder on gene tokens
+- Self-attention across gene dimension
+- No positional encoding (gene identity provides identity)
+- Cell-level readout via `[CLS]` token or mean-pooling
+- Configurable: 4–12 layers, 4–8 heads, 256–512 embed_dim
 
-Anti-collapse:
-- explicit regularization (variance/covariance style) and/or normalization constraints.
-- log collapse diagnostics per step.
+**GNN Encoder** (GEARS-inspired):
+- Input: gene tokens as node features on the PPI/GO gene interaction graph
+- Message passing: GAT or GIN layers
+- Cell-level readout: attention-weighted global pooling
+- The graph provides inductive bias for gene-gene interaction modeling
 
-### 5.2 Masking strategies (first-class ablation)
-Minimum ablations:
-- random gene mask blocks,
-- biologically coherent masks (pathways/modules/regulons) once mapping is stable (see `configs/modules/README.md` and `scripts/build_module_masks.py`).
+**Perceiver Encoder** (GeneJEPA-inspired):
+- Cross-attention from fixed latent tokens to variable-length gene tokens
+- Fixed computational cost regardless of gene count
+- Efficient for full-transcriptome input
+- Configurable: 64–256 latent tokens
 
-Report:
-- mask fraction,
-- module size distribution,
-- overlap handling.
-- whether mask identity was provided explicitly (mask channel/tokens vs implicit zeros).
+### 5.3 JEPA Training (P1)
+- Student encoder `fθ` and teacher encoder `fθ̄` (EMA) — both use the same backend
+- Gene-token–aware masking: mask specific gene tokens
+- Predictor: `gφ(visible_token_repr, mask_info) → target_token_repr`
+- Loss: representation regression (cosine/L2) between predicted and stop-grad teacher targets
+- Anti-collapse: VICReg-style variance/covariance regularization
 
-### 5.3 Perturbation transition predictors (embedding space)
-v0: Prototype predictor:
-- input: control prototype embedding + perturbation metadata,
-- output: predicted perturbed prototype embedding.
+### 5.4 Masking Strategies (P1, first-class ablation)
+- **RandomGeneMask**: randomly mask k% of gene tokens
+- **RegulonMask**: mask a TF + its target genes (forces learning of regulatory logic)
+- **PathwayBlockMask**: mask entire MSigDB/Reactome pathways
+- **GORoleMask**: mask by GO functional category
+- Report: mask type, fraction, module sizes, overlap handling
 
-v1: Set-level predictor:
-- input: a set of control embeddings + perturbation metadata,
-- output: predicted perturbed embeddings (deterministic mapping first).
+### 5.5 Perturbation Encoders (P2)
+- **GeneGraphEmbedding**: encode perturbed gene via GNN node embedding in PPI/GO graph
+- **ChemicalFingerprint**: SMILES → Morgan fingerprints → MLP → embedding
+- **GeneIdentityEmbedding**: reuse gene identity embeddings as perturbation vectors
+- **CombinatorialEncoder**: attentive pooling over individual perturbation embeddings
+- **DoseTimeEncoder**: continuous (dose, time) → MLP → embedding
 
-Safety-by-construction (required for holdout splits and cross-dataset):
-- Prefer a **residual, shrinkage-parameterized** predictor:
-  - `z_hat = z_ctrl + α · Δ(z_ctrl, a)` with `α ∈ [0, 1]` (grid-tuned on validation or learned with explicit regularization),
-  - include `α=0` as an explicit no-change fallback,
-  - clamp/normalize `Δ` to prevent runaway updates under shift.
+### 5.6 World Model / Transition Predictors (P3)
+Three architectures, all retaining residual/shrinkage safety:
 
-Training objective:
-- set distance between predicted set and observed perturbed set, computed per condition/context.
+**Attention-Based:**
+- Cross-attention from perturbation embedding to cell gene-token embeddings
+- Perturbation "attends to" genes it affects → interpretable
 
-Set-level training recipe (default):
-- For each step, sample a `(context_id, perturbation_id)` pair with sufficient control + perturbed cells.
-- Sample `n` control cells and `n` perturbed cells (equalized set size; `n` fixed or capped).
-- Map each sampled control embedding through the predictor to form the predicted perturbed set.
-- Compute the set loss between predicted set and observed perturbed set (using the primary set metric).
+**Graph-Conditioned:**
+- Perturbation modeled as node intervention on gene interaction graph
+- Message passing propagates perturbation signal through regulatory network
+- Directly models the biological causal mechanism
 
-This avoids pseudo-pairing while still training against heterogeneity.
+**Disentangled:**
+- Factorized latent space: base cell state × perturbation effect × covariates (dose, time, cell type)
+- Enables counterfactual reasoning
+
+### 5.7 Gene-Level Decoder (P3)
+- Maps predicted post-perturbation latent embeddings → per-gene log-fold changes
+- Light-weight (1–2 layer MLP), trained after JEPA pretraining (frozen encoder + trained decoder)
+- Enables gene-level evaluation metrics
 
 ## 6) Baselines (mandatory and non-negotiable)
 
-Simple, strong controls:
-- no-change,
-- mean-shift per perturbation (optionally conditioned on cell type/context),
-- ridge regression mapping in PCA / baseline embedding space,
-- optional safety baselines: **shrinkage** versions of mean-shift / ridge with `α ∈ [0,1]` tuned on validation,
-- additive baseline for combination perturbations (if applicable).
+Same as v1, plus SOTA methods:
 
-Baseline tooling:
-- Standard single-cell toolkits (scanpy/pertpy/scvi-tools) are **allowed for baselines only** if they strengthen credibility.
-- Core CellJEPA training remains dependency-minimal; new runtime deps still require user approval.
+Simple baselines (always reported):
+- no-change
+- mean-shift per perturbation
+- ridge regression in PCA / embedding space
 
-Stretch baselines (only if feasible after harness is stable):
-- established perturbation predictors (e.g., scGen/CPA/GEARS),
-- a generative transformer baseline (e.g., scGPT-style) for comparison to reconstruction-heavy objectives.
+SOTA baselines (P5, head-to-head):
+- GEARS (GNN + Gene Ontology)
+- scGPT (Transformer + pretraining)
+- CPA (disentangled VAE)
 
 Baseline fairness protocol:
-- fixed tuning budget and standardized early stopping across methods,
-- report compute and hyperparameters,
-- publish the search space and best config selected on validation folds.
-
-Suggested default tuning budgets (Stage A):
-- ridge regression: grid over regularization strengths; select on validation set.
-- PCA dimension: small fixed set (e.g., 32/64/128) validated on the same folds.
-- non-parametric baselines: no tuning (report as-is).
+- all methods run on identical splits
+- fixed tuning budget and standardized early stopping
+- report compute and hyperparameters
+- publish search space and best config
 
 ## 7) Metrics and Reporting
 
-### 7.1 Primary metrics (embedding-native)
-- prototype error: cosine distance / MSE between predicted and observed prototypes,
-- retrieval: kNN accuracy / mean reciprocal rank for retrieving the correct perturbation condition,
-- set distance (primary v1): **energy distance (E-distance)** over embedding sets.
-  - Acceptable alternatives (explicitly justified): MMD / sliced Wasserstein.
+### 7.1 Primary metrics (gene-level, new in v2)
+- **LFC Pearson correlation**: correlation between predicted and observed log-fold changes across genes
+- **Top-20 DEG recall**: of the true top-20 DEGs, how many are in the predicted top-20?
+- **Direction accuracy**: binary up/down classification per gene
+- **PerturBench rank metric**: novel ranking metric (0 = perfect ordering)
 
-### 7.2 Secondary (if/when decoding is added)
-- DE correlation, pathway enrichment agreement, calibration for stochastic predictors.
+### 7.2 Secondary metrics (embedding-level, retained from v1)
+- Energy distance (E-distance) over embedding sets
+- Prototype cosine distance / MSE
+- kNN retrieval accuracy / MRR
+- Calibrated E-distance (Oct 2025 counter-benchmark variant)
 
 ### 7.3 Reporting + artifact contract
-
-Minimum per run (non-negotiable):
-- `runs/<run_id>/metrics.json` (machine-readable; includes dataset/split IDs, filters, and CIs when applicable).
-
-Recommended (and required for M5 “public artifact” reproducibility):
-- `runs/<run_id>/config.json` capturing CLI args / config snapshot (or embed the equivalent under `metrics["config"]`).
-- `runs/<run_id>/report.md` as a human-readable summary (produced either by the run script or by a report generator under `scripts/`).
-
-Current script behavior (so we don’t lie to ourselves):
-- `scripts/eval_baselines.py`: writes `metrics.json` + `report.md`.
-- `scripts/train_jepa.py`: writes `checkpoint.pt`, `metrics.json`, `config.json` (and may write `embedding_metrics.json`).
-- `scripts/train_transition.py` / `scripts/train_world_model.py`: write `model.pt` + `metrics.json` (reports are generated separately).
-- `scripts/m4_cross_dataset_eval.py`: writes `metrics.json` (reports are generated separately).
+Per run (non-negotiable):
+- `runs/<run_id>/metrics.json` (machine-readable; includes CIs)
+- `runs/<run_id>/config.json` (CLI args / config snapshot)
+- `runs/<run_id>/report.md` (human-readable summary)
 
 Cross-dataset runs must additionally log:
-- action overlap stats (including `%<UNK>` in evaluation pairs),
-- embedding scale diagnostics (e.g., norms/variance by dataset; control-vs-control sanity),
-- metrics stratified by shared-action vs unseen-action (no pooling).
+- action overlap stats
+- embedding scale diagnostics
+- metrics stratified by shared-action vs unseen-action
 
-Recommended run directory layout:
-- `runs/<run_id>/metrics.json`
-- `runs/<run_id>/config.json` (when available)
-- `runs/<run_id>/checkpoint.pt` or `runs/<run_id>/model.pt`
-- `runs/<run_id>/artifacts/` (plots, embeddings, cached predictions)
-- `runs/<run_id>/report.md` (when generated)
+Head-to-head benchmark reports (P5+):
+- Comparison tables with CIs across all methods
+- Ablation tables isolating component contributions
 
 ## 8) Engineering Plan (Reproducibility-First)
 
-Repo conventions (to be enforced):
-- config-snapshotted runs (`configs/` + per-run `config.json` where applicable), deterministic split files, seeded training.
-- “Golden run” that completes on a small subset quickly.
-- avoid hidden state: no ad-hoc notebooks as the primary execution path.
-- track `docs/` in git; keep plan + reports versioned (PDFs can stay ignored).
-- minimal environment spec committed for baseline tooling.
+### Repo conventions
+- config-snapshotted runs, deterministic split files, seeded training
+- "Golden run" that completes on a small subset quickly
+- no ad-hoc notebooks as execution path
+- track `docs/` in git
+- minimal environment spec committed
+
+### New source code layout (P1+)
+```
+src/celljepa/
+  models/
+    gene_tokenizer.py         # Shared gene tokenization
+    encoder_transformer.py    # Transformer backend
+    encoder_gnn.py            # GNN backend
+    encoder_perceiver.py      # Perceiver backend
+    encoder_multimodal.py     # Multi-modal fusion (P6)
+    masking.py                # Gene-token–aware masking
+    perturbation_encoders.py  # Biologically-grounded perturbation encoding
+    world_model.py            # Advanced world models (attention/graph/disentangled)
+    decoder.py                # Gene-level prediction decoder
+    jepa.py                   # Encoder-agnostic JEPA framework
+    transition.py             # Legacy (retained for backward compat)
+```
 
 ### HPC / Slurm execution context
-
-We develop and run CellJEPA primarily on an HPC cluster using Slurm. See `docs/runbook.md`.
-
-Defaults:
 - prefer `sbatch` for training/evaluation jobs
-- default walltime **> 24 hours** (recommended: `--time=48:00:00`) to avoid timeouts
-- write run artifacts to `runs/<run_id>/…` and logs to `logs/`
+- default walltime > 24 hours (recommended: `--time=48:00:00`)
+- multi-GPU support for large-scale pretraining (DDP/FSDP)
+- run artifacts to `runs/<run_id>/…` and logs to `logs/`
 
 ## 9) Risk Register + Mitigations
 
-- **Collapse / shortcut learning:** log collapse metrics; enforce anti-collapse; add module masks; sanity-check against library-size predictors.
-- **Beating ridge is not enough:** if we beat `ridge` but still lose to `no_change`, we treat it as “not yet useful”; focus on characterizing *where* JEPA helps (generalization axes) and tighten the usefulness gate before claiming success.
-- **Cross-dataset evaluation is misleading by default:** low perturbation overlap turns “domain shift” into “unseen-action + domain shift”; always report overlap and stratify seen vs `<UNK>`.
-- **Catastrophic distribution-shift blow-ups:** require residual + α-gating (including α=0 fallback) and bounded updates; treat “α→0” as an honest outcome, not a failure of reporting.
-- **Evaluation unconvincing:** ensure at least one downstream task (retrieval/ranking) is a primary result.
-- **Engineering sprawl:** strict milestone gates; optional branches only after M3 success.
+- **Collapse / shortcut learning:** log collapse metrics for all encoder backends; enforce anti-collapse; regulon masks force non-trivial prediction.
+- **Transformer overfitting on small datasets:** use pretraining on large corpus; then fine-tune on perturbation data.
+- **GNN over-smoothing:** limit message-passing depth; use residual connections; monitor embedding distinguishability.
+- **Gene-level decoding is too easy/hard:** calibrate decoder capacity; compare against linear probes.
+- **SOTA comparison unfairness:** use identical splits, tuning budgets, and early stopping across all methods.
+- **Pretraining compute:** start with CellxGene subset if full corpus is infeasible; scale up as validated.
+- **External codebase drift:** pin GEARS/scGPT/CPA versions; use adapter pattern to insulate.
 
 ## 10) Stretch Goals (Explicitly Gated)
 
-Only consider after M3 acceptance:
-- condition-level JEPA over sets of cells,
-- OT-based pseudo-pairing,
-- diffusion/LLM hybrids in latent space,
-- morphology/spatial integration branches.
+Only consider after P5 acceptance:
+- Condition-level JEPA over sets of cells
+- OT-based pseudo-pairing for cell-level matching
+- Diffusion/LLM hybrids in latent space
+- Cell Painting / morphology integration
+- GWAS enrichment evaluation
+- Survival outcome association validation
