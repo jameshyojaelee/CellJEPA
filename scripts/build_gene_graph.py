@@ -56,8 +56,22 @@ def load_string_aliases(path: Path) -> Dict[str, str]:
 
     STRING uses Ensembl protein IDs (e.g. 9606.ENSP00000000233).
     The aliases file maps these to gene symbols.
+
+    Uses priority-based source selection:
+      Priority 1: Ensembl_HGNC_symbol (authoritative HGNC gene symbol)
+      Priority 2: BioMart_HUGO (exact match, not substring)
+      Priority 3: Ensembl_gene (Ensembl gene name)
     """
+    # Priority levels: higher number = higher priority
+    SOURCE_PRIORITY = {
+        "Ensembl_gene": 1,
+        "BioMart_HUGO": 2,
+        "Ensembl_HGNC_symbol": 3,
+    }
+
     alias_map: Dict[str, str] = {}
+    alias_priority: Dict[str, int] = {}
+
     opener = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8") as f:  # type: ignore[call-overload]
         for line in f:
@@ -67,9 +81,10 @@ def load_string_aliases(path: Path) -> Dict[str, str]:
             if len(parts) < 3:
                 continue
             string_id, alias, source = parts[0], parts[1], parts[2]
-            # Prefer gene symbol sources
-            if "BioMart_HUGO" in source or "Ensembl_HGNC" in source or "BLAST_UniProt_GN" in source:
+            priority = SOURCE_PRIORITY.get(source, 0)
+            if priority > 0 and priority >= alias_priority.get(string_id, 0):
                 alias_map[string_id] = alias
+                alias_priority[string_id] = priority
     return alias_map
 
 
