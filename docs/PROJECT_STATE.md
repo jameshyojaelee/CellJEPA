@@ -2,7 +2,7 @@
 
 Purpose: maintain a compact, current snapshot of progress, reasoning, and key artifacts so a new session can resume quickly.
 
-Last updated: 2026-01-13
+Last updated: 2026-01-14
 
 Update rules:
 - Update after each milestone completion, major run, or shift in reasoning.
@@ -10,11 +10,12 @@ Update rules:
 - Keep this in sync with `docs/DECISIONS.md` and `docs/plan.md`.
 
 ## Current snapshot
-- Active phase: **Phase 0–2 (repo hygiene + data correctness + safety unification)** per `docs/plan.md`.
+- Active milestone: **M4 (cross-dataset shared-action evaluation)** per `docs/plan.md`.
 - Completed milestones: M0, M1, M2.
 - Accepted milestones: M0, M1, M2, **M3** (ridge win with CIs on Replogle S2; see `docs/DECISIONS.md`).
+- In-progress milestones: M4.
 - Pending milestones: M5.
-- Current focus: align execution with the Phase 0–5 roadmap (docs tracked, gene ID policy, safe heads everywhere).
+- Current focus: align execution with the M0–M5 milestone roadmap (contracts, safety-by-construction, usefulness gate).
 - Key decisions: see `docs/DECISIONS.md`.
 - Operational reference: `docs/runbook.md`.
 - Next decision gates (confirm with user before acting): sparse JEPA training path and a cross-dataset pair with meaningful action overlap.
@@ -46,6 +47,11 @@ Update rules:
 - 2025-12-26: M4 cross‑dataset effect‑filtered (top 20%) evals completed for Sci‑Plex3 and Replogle holdouts; results in `reports/m4_cross_dataset_results.md` and run outputs under `runs/m4_cross_*_holdout_set_effect20/`.
 - 2025-12-31: Post‑M4 review: cross‑dataset splits have near‑zero perturbation overlap (cross‑dataset ≈ S1+domain unless restricted). Defined M4‑v2 as **shared‑action cross‑dataset only** with **control z‑score embedding calibration enabled by default** and “usefulness gate” = must beat **no‑change** somewhere; updated `docs/plan.md` + `docs/runbook.md` and recorded decisions in `docs/DECISIONS.md`.
 - 2026-01-05: Plan updated to Phase 0–5 roadmap; docs are now tracked in git; baseline-only dependencies approved (see `docs/DECISIONS.md`).
+- 2026-01-14: Plan revised to an M0–M5 milestone roadmap and aligned with the repo’s current contracts, gates, and artifact expectations (see `docs/plan.md`).
+- 2026-01-14: M4-v2 drug cross-dataset candidate downloads submitted (NadigOConner2024 hepg2/jurkat) via Slurm array job `13011163` (see `/tmp/scperturb_nadig_urls.tsv`).
+- 2026-01-14: Submitted ingestion jobs for NadigOConner2024 hepg2/jurkat (`ingest_nadig_hepg2` = `13011165`, `ingest_nadig_jurkat` = `13011166`).
+- 2026-01-14: Submitted M4 Nadig prep job (`m4_nadig_prep` = `13011224`, depends on ingestion) to compute gene overlap + intersection gene set, harmonize datasets, and create a cross-dataset split with shared-action overlap threshold.
+- 2026-01-14: Submitted JEPA pretraining on Nadig hepg2 (`m4_nadig_jepa` = `13011355`, partition `gpu`) and dependent cross-dataset eval (`13011356`) for the Nadig jurkat holdout.
 
 ## Key artifacts
 - Plans and guardrails: `docs/plan.md`, `AGENTS.md`.

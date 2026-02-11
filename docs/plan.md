@@ -1,10 +1,19 @@
-# CellJEPA — Revised Project Plan (Execution-Ready)
+# CellJEPA — Project Plan (Execution-Ready)
 
-Date: 2026-01-05  
-Status: v4 (phase roadmap + repo hygiene)  
+Date: 2026-01-14  
+Status: v5 (milestones + gates + contracts aligned)  
 Canonical goal: Build a **cell-centric world model** for single-cell omics where JEPA learns a general **latent cell state representation**; evaluate primarily on **perturbation-driven state transitions** (perturbation prediction) in v1.
 
-Operational details (data contract, splits, metrics, HPC defaults) live in `docs/runbook.md`.
+This file is the **canonical roadmap**: what we are building and the **gates** that determine whether we proceed.
+Operational contracts (schemas, CLI expectations, metrics, HPC defaults) live in `docs/runbook.md`.
+
+Doc precedence (if anything conflicts):
+1) `docs/DECISIONS.md`
+2) `docs/plan.md`
+3) `docs/runbook.md`
+4) `docs/archive/`
+
+Current progress and run inventory: `docs/PROJECT_STATE.md`.
 
 ## 0) One-Page Summary
 
@@ -38,12 +47,31 @@ Learning a JEPA-style representation of cell state and predicting **post-perturb
 
 ## 0.1 Default Decisions (to unblock implementation)
 
-These are *defaults*, not permanent commitments. We start here to avoid paralysis and to ensure runs are comparable.
+These are *defaults*, not permanent commitments. They exist to keep runs comparable and to avoid silent drift.
+If a default changes, record it (with date) in `docs/DECISIONS.md` and update this section.
 
 - **Stage A main-table splits:** `S1_unseen_perturbation` and `S2_unseen_context` (defined in §4).
 - **v1 preprocessing:** library-size normalize → log1p; no batch correction.
+- **v1 gene IDs:** gene symbols in `var.index` (store `var["ensembl_id"]` when available).
+- **v1 action tokens:** `obs["perturbation_tokens"]` is a deterministic `|`-separated string; control token is `control:CTRL` (see `docs/runbook.md`).
+- **v1 evaluation filters:** drop `perturbation_id` in `{nan, none, ""}`; default `min_cells_per_condition=30`.
 - **v1 primary set metric:** energy distance (E-distance) over embedding sets (see §7).
+- **Safety-by-construction:** residual/shrinkage heads with `α ∈ [0,1]`, always include `α=0` (no-change), and clamp updates.
+- **Cross-dataset (M4):** shared-action only; control z-score calibration enabled by default; gene harmonization uses intersection sets (see `configs/harmonization/README.md`).
+- **Baselines are mandatory:** always report `no_change`, `mean_shift`, and `ridge` (plus shrinkage variants when relevant).
 - **JEPA backbone (Stage A):** choose the simplest stable implementation first, then ablate alternatives later.
+
+## 0.2 Stop-the-Line Invariants (do not proceed if violated)
+
+These are non-negotiable because violations create misleading results and waste time.
+
+- **Data contract passes:** every `.h5ad` used in any run passes `celljepa.data.validation.validate_or_raise` (see `docs/runbook.md`).
+- **Split artifacts are real artifacts:** train/val/test are group-based, deterministic, saved as JSON, and reused across methods.
+- **No leakage:** any distribution- or label-dependent preprocessing is fit on **train only** and saved per split; never “peek” at test perturbed cells to choose features/params.
+- **Evaluation unit is condition pairs:** aggregate metrics over `(context_id, perturbation_id)` pairs (not cell-weighted averages).
+- **Baselines cannot be optional:** `no_change` must always be reported; if the model does not beat `no_change` anywhere, we do not claim “useful world model”.
+- **Cross-dataset must report overlap:** always report action overlap and restrict main tables to **shared-action** evaluation; hard-fail cross-dataset if overlap is zero.
+- **No non-finite values:** embeddings/predictions/metrics must be finite; any NaNs/Infs are a “stop and fix” event.
 
 ## 1) Definitions (so experiments are unambiguous)
 
@@ -57,58 +85,77 @@ We explicitly support two prediction granularities:
 - **Prototype-level** (debug-first): predict condition mean/robust-mean embedding.
 - **Set-level** (core): predict a set/distribution of embeddings and compare to the empirical perturbed set via set metrics.
 
-## 2) Phased Roadmap (0–5)
+## 2) Milestone Roadmap (M0–M5)
 
-### Phase 0 — Repo + reproducibility baseline (immediate)
+Naming note:
+- “M0…M5” correspond to the `runs/m0_*`, `runs/m1_*`, … run prefixes and are the primary way we refer to progress.
+- Older notes may say “Phase”; treat “Phase” as synonymous with “Milestone”.
+
+### M0 — Repo + reproducibility baseline (immediate)
 Deliverables:
-- Un-ignore and commit `docs/` (keep large PDFs ignored by default).
-- Add a minimal environment spec for baseline tooling (even a small `requirements.txt` is fine).
-- “Toy” end-to-end path documented in README: `make_toy_dataset → make_splits → train_jepa → train_transition`.
+- Track `docs/` in git (keep large PDFs ignored by default).
+- Keep the toy quickstart in `docs/runbook.md` running end-to-end and producing artifacts under `runs/`.
+- Add a minimal environment spec (at least one of: `requirements.txt`, `environment.yml`, or `pyproject.toml`).
+- Maintain a “golden” smoke check: `python3 -m compileall src scripts`.
 
 Gate:
-- Docs are tracked, and the toy run produces `metrics.json` + `report.md` deterministically.
+- The toy quickstart produces `metrics.json` + `report.md` under `runs/` and can be rerun without errors.
 
-### Phase 1 — Data correctness + gene identity (highest leverage)
+### M1 — Data correctness + baseline harness (highest leverage)
 Deliverables:
-- Pick and enforce a **canonical gene ID space** (Ensembl IDs or gene symbols; must be explicit).
-- Add ingestion-time validation that flags mismatched ID spaces and abnormal gene universes.
-- Version gene harmonization artifacts and reference them in split metadata.
+- Enforce the v1 data contract at ingestion time (required `obs`/`uns` keys; unique genes; see §3.2 and `docs/runbook.md`).
+- Lock the v1 gene identity policy (gene symbols) and version harmonization artifacts.
+- Ingest the v1 dataset suite and write processed `.h5ad` artifacts (see `docs/runbook.md`).
+- Generate split files for `S1_unseen_perturbation` and `S2_unseen_context` and store them as reusable artifacts.
+- Run the baseline harness (`no_change`, `mean_shift`, `ridge`) and produce reports/tables.
+- Run a headroom audit before spending weeks optimizing a baseline-saturated benchmark.
 
 Gate:
-- All datasets pass the data contract + gene ID validation; harmonized datasets are reproducible.
+- Every v1 dataset passes contract validation; baseline runs complete for S1/S2; at least one dataset/split shows headroom beyond baselines (or we record “baseline-saturated” and change targets in `docs/DECISIONS.md`).
 
-### Phase 2 — Evaluation + safety unification (no accidental blow-ups)
+### M2 — Omics-appropriate JEPA pretraining (representation substrate)
 Deliverables:
-- Make bounded residual heads the default in **all** training/eval scripts.
-- Ensure `α=0` (no-change) is included in every alpha grid and is logged.
-- Enforce action overlap thresholds for cross-dataset splits (hard-fail if overlap is zero).
-- Default to control-based embedding calibration; log embedding scale diagnostics.
+- Replace “zeros-as-mask” with explicit mask channels/tokens; teacher targets come from full/augmented views.
+- Predictor conditions on mask identity (not only mask ratio).
+- Split-safe pretraining: pretraining can be restricted to train (or train+val) via split artifacts.
+- Anti-collapse: variance/covariance or normalization constraints with logged diagnostics.
+- Memory safety: train without densifying full matrices (or make densification an explicit, bounded debug mode).
 
 Gate:
-- Cross-dataset runs do not explode; overlap stats + no-change baselines are always reported.
+- Stable training across ≥3 seeds; non-degenerate embeddings; collapse diagnostics logged; no OOM on intended dataset scale.
 
-### Phase 3 — Omics-appropriate JEPA (remove shortcut invariances)
+### M3 — Transition/world-model training + safety + within-dataset acceptance
 Deliverables:
-- Replace **zero-as-mask** with explicit mask channels or learned mask tokens.
-- Teacher sees full/augmented context; predictor conditions on **mask identity**, not just ratio.
-- Train from sparse data without densifying full matrices.
+- Train prototype and set-level transition predictors in embedding space.
+- Safety-by-construction is the default: residual/shrinkage heads with alpha grids that always include `α=0`.
+- Evaluation produces bootstrap CIs and always includes `no_change`, `mean_shift`, `ridge` baselines (ideally computed in the same run to ensure identical filtering/resampling).
+- Filtering defaults applied (`min_cells_per_condition=30`, drop nan perturbations) and recorded in metrics.
+- M3 acceptance is allowed on `S2_unseen_context` only (per `docs/DECISIONS.md`) unless explicitly tightened.
+
+Acceptance rule (“win with CI”, default):
+- For a lower-is-better metric (e.g., E-distance, MSE): `model_ci95_hi < baseline_ci95_lo`.
+- Require the win to hold in ≥2 of 3 seeds for the target setting.
 
 Gate:
-- Stable training across ≥3 seeds; collapse diagnostics logged; embeddings are non-degenerate.
+- **Baseline win:** beat `ridge` with CI on the chosen acceptance setting (default target lives in `docs/DECISIONS.md`).
+- **Usefulness win:** beat `no_change` with CI on at least one within-dataset setting (any dataset/split), or we do not claim “useful world model”.
+- No catastrophic blow-ups: residual alpha selection never “hides” divergence (alpha=0 is logged and may win).
 
-### Phase 4 — Cross-dataset done right (shared-action only)
+### M4 — Cross-dataset done right (shared-action only)
 Deliverables:
-- Ingest at least one dataset pair with meaningful action overlap; enforce overlap at split creation.
-- Keep main cross-dataset tables **shared-action only**; unseen-action results are diagnostic.
-- Evaluate with safety head + calibration and report pair counts after filtering.
+- Harmonize by intersection gene sets for the first pass (`configs/harmonization/README.md`).
+- Create cross-dataset splits that enforce meaningful action overlap (hard-fail if overlap is below threshold; use `scripts/m4_make_cross_dataset_splits.py --require-min-action-overlap` and/or `--require-min-action-overlap-frac`).
+- Evaluate shared-action only for the main cross-dataset tables; unseen-action is diagnostic.
+- Enable control-based embedding z-score calibration by default, with an ablation to disable; always report calibration stats.
+- Report overlap and evaluation pair counts after filtering; never pool across shared/unseen action.
 
 Gate:
-- Cross-dataset runs are valid (non-zero shared-action pairs) and stable.
+- Cross-dataset runs are valid (non-zero shared-action pairs), stable (no NaNs/Infs), and include `no_change` baselines + overlap stats in every report.
 
-### Phase 5 — Showcase deliverable (the “public artifact”)
+### M5 — Public artifact + multimodal extension (gated)
 Deliverables:
 - A narrative report with dataset cards, split definitions, headroom audits, baselines + CIs, and JEPA ablations.
-- Explicit effect-size stratification and honest reporting of negative results.
+- Optional: extend to RNA+protein (Perturb-CITE-seq) with an explicit, separate acceptance gate.
 
 Gate:
 - Reproducible report artifact (configs + metrics + plots) suitable for public sharing.
@@ -124,22 +171,34 @@ Score each candidate on:
 - cross-dataset compatibility (gene IDs, annotation quality),
 - minimal licensing / access friction.
 
+Current repo state (what we actually run) is documented in `docs/runbook.md` and `docs/PROJECT_STATE.md`.
+
 ### 3.2 Data contract (implementation requirement)
-Every processed dataset must provide:
-- `X`: numeric expression matrix (fixed preprocessing),
-- `var`: gene identifiers and mapping,
-- `obs`: per-cell metadata including:
-  - `perturbation_id`, `is_control`,
-  - `context_id` (donor/cell line),
-  - optional: `cell_type`, `batch`.
+Operational details (including the exact schema) live in `docs/runbook.md`. This section is a *summary*.
 
-Also store:
-- `dataset_id`, preprocessing version hash, and split-safe statistics.
+Hard requirement: every processed dataset artifact must pass the repo’s validator (`celljepa.data.validation.validate_or_raise`).
 
-Gene identity policy (must be explicit and enforced):
-- Choose a **canonical ID space** for v1 (Ensembl IDs or gene symbols).
-- If mapping is required, store the mapping artifact + version in `uns` and record the source.
-- Log the `var` index key + ID space in reports; fail fast on mixed/unknown ID spaces.
+Required fields (v1):
+- `X`: numeric expression matrix (fixed preprocessing).
+- `var.index`: gene identifiers (must be unique).
+- `obs` columns:
+  - `perturbation_id` (string)
+  - `is_control` (bool)
+  - `context_id` (string)
+  - `perturbation_tokens` (string; deterministic serialization, see §3.4)
+- `uns` keys (provenance):
+  - `dataset_id`
+  - `preprocess_name`
+  - `preprocess_version`
+  - `created_at`
+
+Recommended `obs` columns when available:
+- `cell_type`, `batch`, `dose`, `time_hours`.
+
+Gene identity policy (v1, must be explicit and enforced):
+- Canonical v1 policy is **gene symbols in `var.index`**.
+- Store an Ensembl mapping column when available (e.g., `var["ensembl_id"]`) to reduce ambiguity.
+- If you remap IDs, store mapping provenance + version in `uns` and/or alongside the artifact; fail fast on mixed/unknown ID spaces.
 
 ### 3.3 Preprocessing (start conservative; minimize degrees of freedom)
 Initial v1 preprocessing target:
@@ -153,10 +212,13 @@ Rules:
 ### 3.4 Action/perturbation metadata schema (portable across datasets)
 
 Define a canonical representation for actions (perturbations in v1):
-- `perturbation_tokens`: list of string tokens (e.g., `["gene:STAT1"]`, `["drug:dexamethasone"]`, combos as multiple tokens)
-- `dose`: numeric (optional; NaN if unknown)
-- `time_hours`: numeric (optional; NaN if unknown)
-- `is_control`: boolean
+- `obs["perturbation_tokens"]`: a deterministic `|`-separated string of tokens:
+  - genes: `gene:STAT1`
+  - drugs: `drug:dexamethasone`
+  - controls: `control:CTRL`
+  - combos: multiple tokens in deterministic order, e.g. `gene:STAT1|gene:IRF9`
+- Optional numeric features stored per cell: `obs["dose"]`, `obs["time_hours"]` (NaN if unknown)
+- `obs["is_control"]` remains the canonical control flag
 
 Default encoding strategy:
 - token embedding lookup summed/pooled across tokens,
@@ -176,6 +238,9 @@ Goal: generalize to perturbations not seen during training.
 - Grouping rule: all cells with the same `perturbation_id` are assigned to the same fold.
 - Context handling: contexts are allowed to appear in both train and test, but perturbations are disjoint.
 
+Important: S1 is **not meaningful** if the transition model encodes perturbations as categorical IDs (everything is `<UNK>` at test).
+To make S1 meaningful, use an action representation that generalizes beyond the training perturbation vocabulary (e.g., token embeddings or split-safe gene embeddings; see `configs/actions/` and `docs/DECISIONS.md`).
+
 **S2 — Unseen context (context holdout)**  
 Goal: generalize to new donors/cell lines (or other context definition).
 - Split key: `context_id`
@@ -186,8 +251,8 @@ Defaults:
 - folds: 5 (or fewer if the dataset is too small; never <3 without calling it “pilot only”)
 - training seeds per fold: 3 (e.g., 0/1/2)
 
-### 4.2 Cross-dataset holdout (Phase 4 / M4)
-Hold out entire dataset(s) after harmonizing to a shared gene set (e.g., intersection or a documented “foundation set”).
+### 4.2 Cross-dataset holdout (M4)
+Hold out entire dataset(s) after harmonizing to a shared gene set (v1 default: intersection sets; see `configs/harmonization/README.md`).
 
 Critical note (learned from initial M4 runs):
 - Cross-dataset holdout mixes **domain shift** *and* often **action/perturbation vocabulary shift** (very low overlap between perturbation vocabularies across studies).
@@ -203,7 +268,7 @@ Hard rules:
 
 ## 5) Modeling Plan
 
-### 5.1 Cell-level JEPA (Phase 3 baseline)
+### 5.1 Cell-level JEPA (M2 baseline)
 Inputs:
 - expression vector with gene identities (explicitly represented, not implicit index-only).
 - masking must be **explicit** (mask channel or learned mask tokens), not “zeros-as-mask”.
@@ -224,7 +289,7 @@ Anti-collapse:
 ### 5.2 Masking strategies (first-class ablation)
 Minimum ablations:
 - random gene mask blocks,
-- biologically coherent masks (pathways/modules/regulons) once mapping is stable.
+- biologically coherent masks (pathways/modules/regulons) once mapping is stable (see `configs/modules/README.md` and `scripts/build_module_masks.py`).
 
 Report:
 - mask fraction,
@@ -296,9 +361,20 @@ Suggested default tuning budgets (Stage A):
 ### 7.2 Secondary (if/when decoding is added)
 - DE correlation, pathway enrichment agreement, calibration for stochastic predictors.
 
-### 7.3 Reporting artifacts
-Each run outputs:
-- `config.yaml`, `metrics.json`, split IDs, and a reproducible report page.
+### 7.3 Reporting + artifact contract
+
+Minimum per run (non-negotiable):
+- `runs/<run_id>/metrics.json` (machine-readable; includes dataset/split IDs, filters, and CIs when applicable).
+
+Recommended (and required for M5 “public artifact” reproducibility):
+- `runs/<run_id>/config.json` capturing CLI args / config snapshot (or embed the equivalent under `metrics["config"]`).
+- `runs/<run_id>/report.md` as a human-readable summary (produced either by the run script or by a report generator under `scripts/`).
+
+Current script behavior (so we don’t lie to ourselves):
+- `scripts/eval_baselines.py`: writes `metrics.json` + `report.md`.
+- `scripts/train_jepa.py`: writes `checkpoint.pt`, `metrics.json`, `config.json` (and may write `embedding_metrics.json`).
+- `scripts/train_transition.py` / `scripts/train_world_model.py`: write `model.pt` + `metrics.json` (reports are generated separately).
+- `scripts/m4_cross_dataset_eval.py`: writes `metrics.json` (reports are generated separately).
 
 Cross-dataset runs must additionally log:
 - action overlap stats (including `%<UNK>` in evaluation pairs),
@@ -306,17 +382,16 @@ Cross-dataset runs must additionally log:
 - metrics stratified by shared-action vs unseen-action (no pooling).
 
 Recommended run directory layout:
-- `runs/<run_id>/config.yaml`
-- `runs/<run_id>/splits.json` (or references to versioned split files)
 - `runs/<run_id>/metrics.json`
-- `runs/<run_id>/checkpoints/`
+- `runs/<run_id>/config.json` (when available)
+- `runs/<run_id>/checkpoint.pt` or `runs/<run_id>/model.pt`
 - `runs/<run_id>/artifacts/` (plots, embeddings, cached predictions)
-- `runs/<run_id>/report.md` (or HTML)
+- `runs/<run_id>/report.md` (when generated)
 
 ## 8) Engineering Plan (Reproducibility-First)
 
 Repo conventions (to be enforced):
-- config-driven runs (`configs/`), deterministic split files, seeded training.
+- config-snapshotted runs (`configs/` + per-run `config.json` where applicable), deterministic split files, seeded training.
 - “Golden run” that completes on a small subset quickly.
 - avoid hidden state: no ad-hoc notebooks as the primary execution path.
 - track `docs/` in git; keep plan + reports versioned (PDFs can stay ignored).
@@ -334,7 +409,7 @@ Defaults:
 ## 9) Risk Register + Mitigations
 
 - **Collapse / shortcut learning:** log collapse metrics; enforce anti-collapse; add module masks; sanity-check against library-size predictors.
-- **No wins vs linear baselines:** treat as an outcome; focus on characterizing *where* JEPA helps (generalization axes) and possibly pivot to condition-level JEPA or better masking.
+- **Beating ridge is not enough:** if we beat `ridge` but still lose to `no_change`, we treat it as “not yet useful”; focus on characterizing *where* JEPA helps (generalization axes) and tighten the usefulness gate before claiming success.
 - **Cross-dataset evaluation is misleading by default:** low perturbation overlap turns “domain shift” into “unseen-action + domain shift”; always report overlap and stratify seen vs `<UNK>`.
 - **Catastrophic distribution-shift blow-ups:** require residual + α-gating (including α=0 fallback) and bounded updates; treat “α→0” as an honest outcome, not a failure of reporting.
 - **Evaluation unconvincing:** ensure at least one downstream task (retrieval/ranking) is a primary result.
