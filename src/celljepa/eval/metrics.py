@@ -1,4 +1,11 @@
-"""Metric stubs for M0 (simple, dependency-free implementations)."""
+"""Evaluation metrics for CellJEPA.
+
+Embedding-level metrics (M0/v1):
+  - cosine_distance, energy_distance, bootstrap_mean
+
+Gene-level metrics (P3/v2):
+  - lfc_pearson_correlation, top_k_deg_recall, direction_accuracy
+"""
 
 from __future__ import annotations
 
@@ -56,4 +63,106 @@ def bootstrap_mean(values: Iterable[float], num_samples: int = 1000, seed: int =
         means.append(float(np.mean(sample)))
     means = np.asarray(means)
     return float(np.mean(means)), float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+
+
+# ---------------------------------------------------------------------------
+# Gene-level metrics (P3)
+# ---------------------------------------------------------------------------
+
+def lfc_pearson_correlation(
+    pred: np.ndarray,
+    obs: np.ndarray,
+) -> float:
+    """Pearson correlation between predicted and observed per-gene LFCs.
+
+    Args:
+        pred: (n_genes,) predicted log-fold changes.
+        obs: (n_genes,) observed log-fold changes.
+
+    Returns:
+        Pearson correlation coefficient. NaN if either vector has zero variance.
+    """
+    pred = np.asarray(pred).ravel()
+    obs = np.asarray(obs).ravel()
+    if pred.shape[0] != obs.shape[0]:
+        raise ValueError(
+            f"Shape mismatch: pred has {pred.shape[0]} genes, obs has {obs.shape[0]}"
+        )
+    if pred.shape[0] < 2:
+        return float("nan")
+
+    p_std = np.std(pred)
+    o_std = np.std(obs)
+    if p_std == 0 or o_std == 0:
+        return float("nan")
+
+    return float(np.corrcoef(pred, obs)[0, 1])
+
+
+def top_k_deg_recall(
+    pred: np.ndarray,
+    obs: np.ndarray,
+    k: int = 20,
+) -> float:
+    """Top-k DEG recall: fraction of true top-k DEGs in predicted top-k.
+
+    DEGs are ranked by absolute LFC magnitude.
+
+    Args:
+        pred: (n_genes,) predicted log-fold changes.
+        obs: (n_genes,) observed log-fold changes.
+        k: number of top DEGs to consider.
+
+    Returns:
+        Recall ∈ [0, 1]. Returns NaN if fewer than k genes available.
+    """
+    pred = np.asarray(pred).ravel()
+    obs = np.asarray(obs).ravel()
+    if pred.shape[0] != obs.shape[0]:
+        raise ValueError(
+            f"Shape mismatch: pred has {pred.shape[0]} genes, obs has {obs.shape[0]}"
+        )
+    n = pred.shape[0]
+    if n < k:
+        return float("nan")
+
+    # Top-k by absolute magnitude
+    true_top_k = set(np.argsort(np.abs(obs))[-k:])
+    pred_top_k = set(np.argsort(np.abs(pred))[-k:])
+
+    overlap = len(true_top_k & pred_top_k)
+    return float(overlap / k)
+
+
+def direction_accuracy(
+    pred: np.ndarray,
+    obs: np.ndarray,
+) -> float:
+    """Direction accuracy: fraction of genes with correct up/down sign.
+
+    Genes with observed LFC = 0 are excluded from the calculation.
+
+    Args:
+        pred: (n_genes,) predicted log-fold changes.
+        obs: (n_genes,) observed log-fold changes.
+
+    Returns:
+        Accuracy ∈ [0, 1]. NaN if no non-zero observed genes.
+    """
+    pred = np.asarray(pred).ravel()
+    obs = np.asarray(obs).ravel()
+    if pred.shape[0] != obs.shape[0]:
+        raise ValueError(
+            f"Shape mismatch: pred has {pred.shape[0]} genes, obs has {obs.shape[0]}"
+        )
+
+    # Exclude genes with zero observed LFC
+    nonzero = obs != 0
+    if not np.any(nonzero):
+        return float("nan")
+
+    pred_sign = np.sign(pred[nonzero])
+    obs_sign = np.sign(obs[nonzero])
+
+    return float(np.mean(pred_sign == obs_sign))
 
