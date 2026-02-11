@@ -5,6 +5,10 @@ Embedding-level metrics (M0/v1):
 
 Gene-level metrics (P3/v2):
   - lfc_pearson_correlation, top_k_deg_recall, direction_accuracy
+
+Benchmark metrics (P5):
+  - perturbench_rank_metric, knn_retrieval_accuracy,
+    mean_reciprocal_rank, calibrated_energy_distance
 """
 
 from __future__ import annotations
@@ -165,4 +169,163 @@ def direction_accuracy(
     obs_sign = np.sign(obs[nonzero])
 
     return float(np.mean(pred_sign == obs_sign))
+
+
+# ---------------------------------------------------------------------------
+# Benchmark metrics (P5)
+# ---------------------------------------------------------------------------
+
+def perturbench_rank_metric(
+    predicted_embeddings: np.ndarray,
+    true_embeddings: np.ndarray,
+    labels: np.ndarray,
+) -> float:
+    """PerturBench-style rank metric: how well are perturbation effects ordered?
+
+    For each perturbation, compute the rank of the true match among all
+    candidates by embedding distance. Returns mean normalized rank
+    (0 = perfect, 1 = worst).
+
+    Args:
+        predicted_embeddings: (N, D) predicted perturbation effect embeddings.
+        true_embeddings: (N, D) ground-truth perturbation effect embeddings.
+        labels: (N,) perturbation labels for grouping.
+
+    Returns:
+        Mean normalized rank ∈ [0, 1]. Lower is better.
+    """
+    predicted_embeddings = np.asarray(predicted_embeddings)
+    true_embeddings = np.asarray(true_embeddings)
+    labels = np.asarray(labels)
+    n = predicted_embeddings.shape[0]
+    if n < 2:
+        return float("nan")
+
+    ranks = []
+    for i in range(n):
+        # Distance from prediction i to all true embeddings
+        dists = np.linalg.norm(true_embeddings - predicted_embeddings[i], axis=1)
+        # Rank of the correct match (0-indexed)
+        sorted_idx = np.argsort(dists)
+        rank = int(np.where(sorted_idx == i)[0][0])
+        # Normalize: 0 = correct match is closest, 1 = farthest
+        ranks.append(rank / (n - 1))
+
+    return float(np.mean(ranks))
+
+
+def knn_retrieval_accuracy(
+    embeddings: np.ndarray,
+    labels: np.ndarray,
+    k: int = 5,
+) -> float:
+    """kNN retrieval accuracy: fraction of k nearest neighbors sharing label.
+
+    Args:
+        embeddings: (N, D) embedding vectors.
+        labels: (N,) perturbation labels.
+        k: number of neighbors.
+
+    Returns:
+        Mean accuracy ∈ [0, 1].
+    """
+    embeddings = np.asarray(embeddings)
+    labels = np.asarray(labels)
+    n = embeddings.shape[0]
+    if n < k + 1:
+        return float("nan")
+
+    # Pairwise distances
+    # Use broadcasting: (N, 1, D) - (1, N, D) → (N, N)
+    dists = np.linalg.norm(
+        embeddings[:, np.newaxis, :] - embeddings[np.newaxis, :, :], axis=2
+    )
+
+    accuracies = []
+    for i in range(n):
+        # Exclude self (set self-distance to inf)
+        d = dists[i].copy()
+        d[i] = np.inf
+        neighbors = np.argsort(d)[:k]
+        same_label = np.sum(labels[neighbors] == labels[i])
+        accuracies.append(same_label / k)
+
+    return float(np.mean(accuracies))
+
+
+def mean_reciprocal_rank(
+    predicted_embeddings: np.ndarray,
+    true_embeddings: np.ndarray,
+) -> float:
+    """Mean Reciprocal Rank: how quickly the correct match is found.
+
+    For each predicted embedding, find the rank of the true match among
+    all candidates (by L2 distance). MRR = mean(1/rank).
+
+    Args:
+        predicted_embeddings: (N, D) predicted embeddings.
+        true_embeddings: (N, D) true embeddings (one-to-one correspondence).
+
+    Returns:
+        MRR ∈ (0, 1]. Higher is better.
+    """
+    predicted_embeddings = np.asarray(predicted_embeddings)
+    true_embeddings = np.asarray(true_embeddings)
+    n = predicted_embeddings.shape[0]
+    if n < 1:
+        return float("nan")
+
+    reciprocal_ranks = []
+    for i in range(n):
+        dists = np.linalg.norm(true_embeddings - predicted_embeddings[i], axis=1)
+        sorted_idx = np.argsort(dists)
+        rank = int(np.where(sorted_idx == i)[0][0]) + 1  # 1-indexed
+        reciprocal_ranks.append(1.0 / rank)
+
+    return float(np.mean(reciprocal_ranks))
+
+
+def calibrated_energy_distance(
+    pred: np.ndarray,
+    obs: np.ndarray,
+    n_permutations: int = 100,
+    seed: int = 42,
+) -> float:
+    """Calibrated E-distance: E-distance normalized by permuted null.
+
+    Computes E-distance between predicted and observed, then divides by
+    the mean E-distance under random permutations of the labels.
+    Values < 1 mean predictions are better than chance.
+
+    Args:
+        pred: (N, D) predicted embeddings.
+        obs: (N, D) observed embeddings.
+        n_permutations: number of permutation samples for null.
+        seed: random seed.
+
+    Returns:
+        Calibrated E-distance ratio. Lower is better; < 1 beats null.
+    """
+    pred = np.asarray(pred)
+    obs = np.asarray(obs)
+    if pred.shape[0] < 2 or obs.shape[0] < 2:
+        return float("nan")
+
+    actual_ed = energy_distance(pred, obs)
+
+    rng = np.random.default_rng(seed)
+    null_eds = []
+    combined = np.vstack([pred, obs])
+    n_pred = pred.shape[0]
+    for _ in range(n_permutations):
+        perm = rng.permutation(combined.shape[0])
+        null_pred = combined[perm[:n_pred]]
+        null_obs = combined[perm[n_pred:]]
+        null_eds.append(energy_distance(null_pred, null_obs))
+
+    mean_null = float(np.mean(null_eds))
+    if mean_null == 0:
+        return float("nan")
+
+    return actual_ed / mean_null
 

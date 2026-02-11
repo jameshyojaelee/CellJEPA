@@ -2,7 +2,7 @@
 
 Purpose: maintain a compact, current snapshot of progress, reasoning, and key artifacts so a new session can resume quickly.
 
-Last updated: 2026-02-11 (P4 code infrastructure complete)
+Last updated: 2026-02-11 (P5 benchmark suite complete)
 
 Update rules:
 - Update after each milestone completion, major run, or shift in reasoning.
@@ -10,10 +10,10 @@ Update rules:
 - Keep this in sync with `docs/DECISIONS.md` and `docs/plan.md`.
 
 ## Current snapshot
-- Active milestone: **P4 (large-scale pretraining + dataset expansion)** per `docs/plan.md` v2. Code infrastructure complete; operational steps (data downloads, HPC training runs) pending.
-- Completed milestones: M0, M1, M2 (from v1 roadmap), P1 (gene-token encoder + JEPA rewrite), P2 (perturbation encoding overhaul), P3 (world model overhaul + gene-level decoder), P4 (code infrastructure).
+- Active milestone: **P5 (evaluation framework + benchmarking)** per `docs/plan.md` v2. Code infrastructure complete; actual GEARS/scGPT/CPA runs pending.
+- Completed milestones: M0, M1, M2 (from v1 roadmap), P1 (gene-token encoder + JEPA rewrite), P2 (perturbation encoding overhaul), P3 (world model overhaul + gene-level decoder), P4 (code infrastructure), P5 (evaluation framework code).
 - Superseded milestones: M3 (ridge win insufficient; replaced by P3 usefulness gate), M4, M5 (replaced by P4–P7).
-- Current focus: Download perturbation datasets, generate real graph/regulon artifacts, run large-scale pretraining on HPC.
+- Current focus: Train CellJEPA models, run head-to-head evaluations against GEARS/scGPT/CPA.
 - Key decisions: see `docs/DECISIONS.md` (2026-02-11 v2 overhaul entries).
 - Operational reference: `docs/runbook.md`.
 
@@ -28,7 +28,7 @@ Update rules:
 | **P2** Perturbation encoding | ✅ Complete | 5 encoder classes: GeneIdentity, GeneGraph, ChemicalFingerprint, Combinatorial, DoseTime |
 | **P3** World model + decoder | ✅ Complete | 3 architectures: Attention, Graph, Disentangled + GeneLevelDecoder + 3 gene-level metrics |
 | **P4** Large-scale pretraining | ⏳ Code complete | Streaming data, DDP training, 12-dataset catalog, v2 pretrain script. Operational runs pending. |
-| **P5** Benchmark suite | 🔲 Not started | Head-to-head vs GEARS/scGPT/CPA |
+| **P5** Benchmark suite | ⏳ Code complete | 10-metric suite, 6 SOTA adapters, unified runner, report generator. Head-to-head runs pending. |
 | **P6** Multi-modal | 🔲 Not started | scATAC + Perturb-CITE-seq |
 | **P7** Publication | 🔲 Not started | Ablation + manuscript |
 
@@ -49,6 +49,7 @@ Update rules:
 - 2026-02-11: P2 complete. Implemented 5 biologically-grounded perturbation encoders in `src/celljepa/models/perturbation_encoders.py`: GeneIdentityPerturbationEncoder (with optional weight sharing), GeneGraphPerturbationEncoder (GAT on PPI/GO graph), ChemicalFingerprintEncoder (Morgan FP → MLP), CombinatorialPerturbationEncoder (attentive pooling), DoseTimeEncoder. All 7 smoke tests passed.
 - 2026-02-11: P3 complete. Rewrote `src/celljepa/models/world_model.py` with 3 world model architectures (AttentionWorldModel, GraphConditionedWorldModel, DisentangledWorldModel) + safety-by-construction (residual + α + delta clamping). Created `src/celljepa/models/decoder.py` with GeneLevelDecoder (cell-level + gene-level input modes). Added gene-level metrics (LFC Pearson, top-k DEG recall, direction accuracy) to `src/celljepa/eval/metrics.py`. All 9 smoke tests passed.
 - 2026-02-11: P4 code infrastructure complete. Created streaming data loading (`streaming_dataset.py`: CellDataset + MultiDatasetMixer), dataset catalog (`dataset_catalog.py`: 12 datasets), DDP utilities (`distributed.py`), and v2 pretraining script (`pretrain_jepa_v2.py`). All 7 smoke tests passed. Operational runs (data downloads, HPC pretraining) pending.
+- 2026-02-11: P5 evaluation framework complete. Extended `metrics.py` with 4 new metrics (PerturBench rank, kNN retrieval, MRR, calibrated E-distance). Created `benchmark_adapters.py` (6 adapters: NoChange, MeanShift, CellJEPA, GEARS, scGPT, CPA), `benchmark_runner.py` (unified runner with CIs), and rewritten `report.py` (comparison tables). All 7 smoke tests passed.
 
 ### v1 (2025-12-24 – 2026-01-14)
 - 2025-12-24: M0 complete. Implemented data-contract checks, split generator CLI, and toy dataset generator.
@@ -72,6 +73,7 @@ Update rules:
 - v2 data infrastructure: `src/celljepa/data/streaming_dataset.py` (CellDataset + MultiDatasetMixer), `dataset_catalog.py` (12-dataset registry).
 - v2 distributed training: `src/celljepa/train/distributed.py` (DDP + scheduler).
 - v2 pretraining script: `scripts/pretrain_jepa_v2.py` (JEPAv2 + streaming + DDP).
+- v2 benchmark suite: `src/celljepa/eval/benchmark_adapters.py` (6 adapters), `benchmark_runner.py` (unified runner), `report.py` (comparison tables).
 - v2 masking: `src/celljepa/models/masking.py`.
 - Gene graph artifact: `configs/graphs/synthetic_test_graph.pt`.
 - Regulon artifact: `configs/regulons/synthetic_test.json`.
