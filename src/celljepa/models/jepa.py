@@ -209,8 +209,8 @@ class JEPAv2(nn.Module):
         # Tokenize (shared between student and teacher)
         tokens = self.tokenizer(expression, gene_ids)  # (batch, n_genes, token_dim)
 
-        # Prepare masks
-        visible = mask_result.visible_mask  # (n_genes,)
+        # Prepare masks — ensure on same device as tokens
+        visible = mask_result.visible_mask.to(tokens.device)  # (n_genes,)
         batch_size = tokens.shape[0]
 
         # Teacher: full tokens (no masking), no gradients
