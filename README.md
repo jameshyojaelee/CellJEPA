@@ -1,6 +1,6 @@
 # CellJEPA
 
-CellJEPA investigates **Joint-Embedding Predictive Architectures (JEPAs)** for **single-cell omics**, with the goal of building a **SOTA-competitive perturbation prediction model** that outperforms current deep learning methods (GEARS, scGPT, CPA, GeneFormer) on standard benchmarks.
+CellJEPA investigates **Joint-Embedding Predictive Architectures (JEPAs)** for **single-cell omics**, with the goal of building a competitive perturbation prediction model that outperforms current deep learning methods (GEARS, scGPT, CPA, GeneFormer) on standard benchmarks.
 
 This repo is **benchmark-driven**: the goal is to make a credible, head-to-head case for when JEPA-style learning beats (or loses to) existing approaches.
 
@@ -185,8 +185,6 @@ flowchart TD
     class FUTURE future
 ```
 
-> **Legend**: 🟢 Green = Completed (P1–P3) · 🟡 Yellow = Active / Next (P4–P5) · ⚪ Grey = Future (P6–P7)
-
 ### Gene-token encoding
 Every cell is tokenized at the gene level:
 - **Gene identity embedding:** Learned embedding per gene (~20K human genes)
@@ -253,29 +251,6 @@ Every cell is tokenized at the gene level:
 - **scPerturb** (harmonized): Sci-Plex 2/3/4 (drug), Norman 2019 (CRISPRa), Replogle 2022 (CRISPRi)
 - **Additional:** Dixit 2016, CROP-seq, McFarland 2020, NadigOConner 2024
 - **Multi-modal (P6):** Perturb-CITE-seq (RNA + protein), 10x Multiome (RNA + ATAC)
-
----
-
-## Roadmap
-
-### Completed (v1)
-- ✅ M0: Repo + reproducibility baseline
-- ✅ M1: Data contract + baseline harness
-- ✅ M2: Basic JEPA pretraining (MLP, proof-of-concept)
-
-### Current (v2)
-1. **P1:** Gene-token encoder + JEPA rewrite (Transformer / GNN / Perceiver)
-2. **P2:** Biologically-grounded perturbation encoding
-3. **P3:** Advanced world models + gene-level decoder
-4. **P4:** Large-scale pretraining (50M+ cells) + dataset expansion
-5. **P5:** Head-to-head benchmarking vs GEARS / scGPT / CPA
-6. **P6:** Multi-modal extension (scATAC, Perturb-CITE-seq)
-7. **P7:** Publication artifact + ablation study
-
-### Optional branches
-- Cell Painting / morphology integration
-- GWAS enrichment evaluation
-- Survival outcome association validation
 
 ---
 
